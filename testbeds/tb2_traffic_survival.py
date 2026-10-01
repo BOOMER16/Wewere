@@ -131,9 +131,14 @@ def main():
             "train_days": T, "idle_cohort_size": tested,
             "actually_returned": empirical,
             "poisson_expected_return": round(predicted, 1),
-            "note": ("Poisson on a 24d rate under-counts returns for bursty tails"
-                     if empirical > predicted else
-                     "Poisson tracks empirical returns within noise"),
+            "predicted_over_observed_ratio": round(predicted / max(1, empirical), 3),
+            "note": (
+                "Poisson UNDER-predicts returns: unsafe as a deletion gate"
+                if empirical > 1.1 * predicted else
+                "Poisson OVER-predicts returns (conservative, mis-calibrated): "
+                "good for ranking, recalibrate before using as a probability"
+                if predicted > 1.1 * empirical else
+                "Poisson tracks empirical returns within 10%"),
             "reliability_deciles": rel},
     }
     save("tb2_summary.json", summ)

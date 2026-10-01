@@ -17,7 +17,8 @@
     "idle_cohort_size": 3973,
     "actually_returned": 783,
     "poisson_expected_return": 1161.4,
-    "note": "Poisson tracks empirical returns within noise",
+    "predicted_over_observed_ratio": 1.483,
+    "note": "Poisson OVER-predicts returns (conservative, mis-calibrated): good for ranking, recalibrate before using as a probability",
     "reliability_deciles": [
       {
         "bin": 0,

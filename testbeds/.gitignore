@@ -1,0 +1,2 @@
+results/*.private.*
+__pycache__/

@@ -1,18 +1,436 @@
-import {useEffect,useState} from 'react';
-import {Button,Empty,useApp,download,csv} from './dashboard';
-import * as E from '@/lib/engine';
-export default function TrackerPage(){const {state,t,mutate,notice,selectedGame,setSelectedGame}=useApp();const [eventId,setEventId]=useState(''),[filter,setFilter]=useState('pending'),[side,setSide]=useState('all'),[undo,setUndo]=useState<any>(null);
-const g=t.games.find(g=>g.id===selectedGame)??t.games.find(g=>g.status==='live')??t.games[0];
-useEffect(()=>{if(g)setSelectedGame(g.id);setEventId('');setUndo(null);},[g?.id]);
-if(!g)return <Empty title="Waiting for fixtures">The dashboard operator creates the tournament draw. Select that tournament above to track its players.</Empty>;
-const teams=E.matchTeams(state,t,g),events=g.events.filter(e=>e.type!=='lineup');const visible=events.filter(e=>(filter!=='pending'||!e.player)&&(side==='all'||e.side===Number(side))).slice().reverse();const active=visible.find(e=>e.id===eventId)??visible[0];const pending=events.filter(e=>!e.player).length;
-const change=(fn:(s:E.State,t:E.Tournament,g:E.Game)=>void)=>mutate(s=>{const tour=s.tournaments.find(x=>x.id===t.id);const game=tour?.games.find(x=>x.id===g.id);if(!tour||!game)throw Error('This match was removed. Choose another match.');fn(s,tour,game);});
-async function assign(player:string){if(!active)return;const previous=active.player;if(await change((s,t,g)=>E.assignEvent(s,t,g,active.id,player))){setUndo({id:active.id,previous,next:player});notice(player?'Player assigned. Team score unchanged.':'Assignment cleared.');}}
-function exportStats(){download('alliance-'+g.label+'-live-player-stats.csv',csv([['Team','Jersey','Player','Points','1-point makes','2-point makes','3-point makes','Fouls'],...teams.flatMap((team,side)=>team?[...team.players.map(p=>[team.name,p.number,p.name,E.playerTotal(g,side,p.id),...[1,2,3].map(n=>g.events.filter(e=>e.side===side&&e.type==='points'&&e.player===p.id&&e.value===n).length),E.playerTotal(g,side,p.id,'foul')]),[team.name,'','Unassigned',E.playerTotal(g,side,''),'','','',E.playerTotal(g,side,'','foul')]]:[])]),'text/csv;charset=utf-8');}
-return <div className="tracker-page"><div className="page-title"><div><p>Second operator · {t.name}</p><h2>Player tracker</h2></div><div className="row"><select aria-label="Track match" value={g.id} onChange={e=>{setSelectedGame(e.target.value);const url=new URL(location.href);url.searchParams.set('match',e.target.value);url.searchParams.set('tournament',t.id);history.replaceState({},'',url);}}>{t.games.map(m=><option key={m.id} value={m.id}>{m.label} · {m.round} · {m.status}</option>)}</select><Button className="btn secondary" onClick={async()=>{try{await navigator.clipboard.writeText(location.origin+'/tracker?tournament='+t.id+'&match='+g.id);notice('Tracker link copied.');}catch{notice('Copy the tracker address from your browser.');}}}>Copy tracker link</Button><Button className="btn secondary" onClick={exportStats}>Export player stats</Button></div></div>
-<div className="tracker-score-strip"><span>{teams[0]?.name??'Awaiting team'} <b>{E.total(g,0)}</b></span><small>{g.label} · {E.periodName(g.period)} · {g.status}</small><span><b>{E.total(g,1)}</b> {teams[1]?.name??'Awaiting team'}</span></div>
-<p className="help">Select a recorded action, then tap the player. Assignments never add points. Use Record new foul only for a foul that has not already been entered by the dashboard operator.</p>
-<div className="tracker-layout"><section className="panel tracker-queue"><div className="section-title"><h3>Actions to assign</h3><b>{pending} pending</b></div><div className="row"><Button className={'btn '+(filter==='pending'?'action':'secondary')} onClick={()=>setFilter('pending')}>Unassigned</Button><Button className={'btn '+(filter==='all'?'action':'secondary')} onClick={()=>setFilter('all')}>All actions</Button></div><select aria-label="Filter team" value={side} onChange={e=>setSide(e.target.value)}><option value="all">Both teams</option>{teams.map((team,i)=><option value={i} key={i}>{team?.name??'Team '+(i+1)}</option>)}</select><div className="tracker-events">{visible.map(e=><button className={'tracker-event '+(active?.id===e.id?'selected':'')} key={e.id} onClick={()=>setEventId(e.id)}><b>{e.type==='points'?'+'+e.value:'Foul'}</b><span><strong>{teams[e.side]?.name}</strong><small>{E.periodName(e.period)} · {E.formatClock(e.clock)} · {new Date(e.at).toLocaleTimeString()}</small><small>{teams[e.side]?.players.find(p=>p.id===e.player)?.name??'Unassigned'}</small></span></button>)}{!visible.length&&<p className="empty-copy">{filter==='pending'?'All recorded actions are assigned. New actions appear here automatically.':'No recorded actions yet.'}</p>}</div></section>
-<section className="panel tracker-assignment"><div className="section-title"><h3>{active?(active.type==='points'?'Assign +'+active.value+' points':'Assign foul'):'Player assignment'}</h3><Button className="btn secondary" disabled={!g.rosters} onClick={()=>change((s,t,g)=>E.addRosterPlayers(s,t,g))}>Load added players</Button></div>{active?<><p>{teams[active.side]?.name} · {E.periodName(active.period)} · {E.formatClock(active.clock)}</p><div className="tracker-player-picks">{teams[active.side]?.players.map(p=><Button key={p.id} className={'tracker-player-pick '+(active.player===p.id?'assigned':'')} onClick={()=>assign(p.id)}><b>#{p.number}</b><span>{p.name}<small>{E.playerTotal(g,active.side,p.id)} pts · {E.playerTotal(g,active.side,p.id,'foul')} fouls</small></span></Button>)}</div>{!teams[active.side]?.players.length&&<p className="empty-copy">Add players on Teams & players, then tap Load added players. The score remains safe while you complete the roster.</p>}<Button className="btn secondary" disabled={!active.player} onClick={()=>assign('')}>Clear this assignment</Button></>:<p className="empty-copy">Select an action from the list. The match stays selected after the final whistle so you can finish assigning players.</p>}<Button className="btn secondary" disabled={!undo} onClick={async()=>{if(await change((s,t,g)=>{const e=g.events.find(e=>e.id===undo.id);if(!e||e.player!==undo.next)throw Error('This assignment changed elsewhere. Review it in All actions.');E.assignEvent(s,t,g,undo.id,undo.previous);}))setUndo(null);}}>Undo last assignment</Button></section></div>
-<div className="tracker-stats">{teams.map((team,side)=><section className="panel" key={side}><div className="section-title"><h3>{team?.name??'Awaiting team'}</h3><span>{E.playerTotal(g,side,'')} points unassigned</span></div><div className="table-scroll"><table><thead><tr><th>Player</th><th>PTS</th><th>1PT</th><th>2PT</th><th>3PT</th><th>Fouls</th><th>New foul</th></tr></thead><tbody>{team?.players.map(p=>{const fouls=E.playerTotal(g,side,p.id,'foul');return <tr key={p.id} className={fouls>=t.foulLimit?'fouled-out':''}><td><b>#{p.number}</b> {p.name}</td><td><b>{E.playerTotal(g,side,p.id)}</b></td>{[1,2,3].map(n=><td key={n}>{g.events.filter(e=>e.type==='points'&&e.side===side&&e.player===p.id&&e.value===n).length}</td>)}<td>{fouls}/{t.foulLimit}{fouls>=t.foulLimit?' · Out':''}</td><td><Button className="btn small secondary" aria-label={'Record new foul for '+p.name} disabled={g.status!=='live'||!g.rosters||fouls>=t.foulLimit} onClick={()=>change((s,t,g)=>{if(g.status!=='live'||!g.rosters)throw Error('The dashboard operator must start the match first.');const scorer=g.scorer;E.recordTeamEvent(s,t,g,side,'foul',1,scorer);E.assignEvent(s,t,g,g.events[g.events.length-1].id,p.id);})}>+ Foul</Button></td></tr>})}<tr><td>Unassigned</td><td>{E.playerTotal(g,side,'')}</td><td colSpan={3}>Awaiting player</td><td>{E.playerTotal(g,side,'','foul')}</td><td/></tr></tbody></table></div><p className="help">1PT / 2PT / 3PT are made-shot counts. Pending actions are excluded from individual totals until assigned.</p></section>)}</div>
-</div>}
+import { useEffect, useState } from "react";
+import { Button, Empty, useApp, download, csv } from "./dashboard";
+import * as E from "@/lib/engine";
+export default function TrackerPage() {
+  const { state, t, mutate, notice, selectedGame, setSelectedGame } = useApp();
+  const [eventId, setEventId] = useState(""),
+    [filter, setFilter] = useState("pending"),
+    [side, setSide] = useState("all"),
+    [undo, setUndo] = useState<any>(null);
+  const g =
+    t.games.find((g) => g.id === selectedGame) ??
+    t.games.find((g) => g.status === "live") ??
+    t.games[0];
+  useEffect(() => {
+    if (g) setSelectedGame(g.id);
+    setEventId("");
+    setUndo(null);
+  }, [g?.id]);
+  if (!g)
+    return (
+      <Empty title="Waiting for fixtures">
+        The dashboard operator creates the tournament draw. Select that
+        tournament above to track its players.
+      </Empty>
+    );
+  const teams = E.matchTeams(state, t, g),
+    events = g.events.filter((e) => e.type !== "lineup");
+  const visible = events
+    .filter(
+      (e) =>
+        (filter !== "pending" || !e.player) &&
+        (side === "all" || e.side === Number(side)),
+    )
+    .slice()
+    .reverse();
+  const active = visible.find((e) => e.id === eventId) ?? visible[0];
+  const pending = events.filter((e) => !e.player).length;
+  const change = (fn: (s: E.State, t: E.Tournament, g: E.Game) => void) =>
+    mutate((s) => {
+      const tour = s.tournaments.find((x) => x.id === t.id);
+      const game = tour?.games.find((x) => x.id === g.id);
+      if (!tour || !game)
+        throw Error("This match was removed. Choose another match.");
+      fn(s, tour, game);
+    });
+  async function assign(player: string) {
+    if (!active) return;
+    const previous = active.player;
+    if (await change((s, t, g) => E.assignEvent(s, t, g, active.id, player))) {
+      setUndo({ id: active.id, previous, next: player });
+      notice(
+        player
+          ? "Player assigned. Team score unchanged."
+          : "Assignment cleared.",
+      );
+    }
+  }
+  function exportStats() {
+    download(
+      "alliance-" + g.label + "-live-player-stats.csv",
+      csv([
+        [
+          "Team",
+          "Jersey",
+          "Player",
+          "Points",
+          "1-point makes",
+          "2-point makes",
+          "3-point makes",
+          "Fouls",
+        ],
+        ...teams.flatMap((team, side) =>
+          team
+            ? [
+                ...team.players.map((p) => [
+                  team.name,
+                  p.number,
+                  p.name,
+                  E.playerTotal(g, side, p.id),
+                  ...[1, 2, 3].map(
+                    (n) =>
+                      g.events.filter(
+                        (e) =>
+                          e.side === side &&
+                          e.type === "points" &&
+                          e.player === p.id &&
+                          e.value === n,
+                      ).length,
+                  ),
+                  E.playerTotal(g, side, p.id, "foul"),
+                ]),
+                [
+                  team.name,
+                  "",
+                  "Unassigned",
+                  E.playerTotal(g, side, ""),
+                  "",
+                  "",
+                  "",
+                  E.playerTotal(g, side, "", "foul"),
+                ],
+              ]
+            : [],
+        ),
+      ]),
+      "text/csv;charset=utf-8",
+    );
+  }
+  return (
+    <div className="tracker-page">
+      <div className="page-title">
+        <div>
+          <p>Second operator · {t.name}</p>
+          <h2>Player tracker</h2>
+        </div>
+        <div className="row">
+          <select
+            aria-label="Track match"
+            value={g.id}
+            onChange={(e) => {
+              setSelectedGame(e.target.value);
+              const url = new URL(location.href);
+              url.searchParams.set("match", e.target.value);
+              url.searchParams.set("tournament", t.id);
+              history.replaceState({}, "", url);
+            }}
+          >
+            {t.games.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label} · {m.round} · {m.status}
+              </option>
+            ))}
+          </select>
+          <Button
+            className="btn secondary"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(
+                  location.origin +
+                    "/tracker?tournament=" +
+                    t.id +
+                    "&match=" +
+                    g.id,
+                );
+                notice("Tracker link copied.");
+              } catch {
+                notice("Copy the tracker address from your browser.");
+              }
+            }}
+          >
+            Copy tracker link
+          </Button>
+          <Button className="btn secondary" onClick={exportStats}>
+            Export player stats
+          </Button>
+        </div>
+      </div>
+      <div className="tracker-score-strip">
+        <span>
+          {teams[0]?.name ?? "Awaiting team"} <b>{E.total(g, 0)}</b>
+        </span>
+        <small>
+          {g.label} · {E.periodName(g.period)} · {g.status}
+        </small>
+        <span>
+          <b>{E.total(g, 1)}</b> {teams[1]?.name ?? "Awaiting team"}
+        </span>
+      </div>
+      <p className="help">
+        Select a recorded action, then tap the player. Assignments never add
+        points. Use Record new foul only for a foul that has not already been
+        entered by the dashboard operator.
+      </p>
+      <div className="tracker-layout">
+        <section className="panel tracker-queue">
+          <div className="section-title">
+            <h3>Actions to assign</h3>
+            <b>{pending} pending</b>
+          </div>
+          <div className="row">
+            <Button
+              className={
+                "btn " + (filter === "pending" ? "action" : "secondary")
+              }
+              onClick={() => setFilter("pending")}
+            >
+              Unassigned
+            </Button>
+            <Button
+              className={"btn " + (filter === "all" ? "action" : "secondary")}
+              onClick={() => setFilter("all")}
+            >
+              All actions
+            </Button>
+          </div>
+          <select
+            aria-label="Filter team"
+            value={side}
+            onChange={(e) => setSide(e.target.value)}
+          >
+            <option value="all">Both teams</option>
+            {teams.map((team, i) => (
+              <option value={i} key={i}>
+                {team?.name ?? "Team " + (i + 1)}
+              </option>
+            ))}
+          </select>
+          <div className="tracker-events">
+            {visible.map((e) => (
+              <button
+                className={
+                  "tracker-event " + (active?.id === e.id ? "selected" : "")
+                }
+                key={e.id}
+                onClick={() => setEventId(e.id)}
+              >
+                <b>{e.type === "points" ? "+" + e.value : "Foul"}</b>
+                <span>
+                  <strong>{teams[e.side]?.name}</strong>
+                  <small>
+                    {E.periodName(e.period)} · {E.formatClock(e.clock)} ·{" "}
+                    {new Date(e.at).toLocaleTimeString()}
+                  </small>
+                  <small>
+                    {teams[e.side]?.players.find((p) => p.id === e.player)
+                      ?.name ?? "Unassigned"}
+                  </small>
+                </span>
+              </button>
+            ))}
+            {!visible.length && (
+              <p className="empty-copy">
+                {filter === "pending"
+                  ? "All recorded actions are assigned. New actions appear here automatically."
+                  : "No recorded actions yet."}
+              </p>
+            )}
+          </div>
+        </section>
+        <section className="panel tracker-assignment">
+          <div className="section-title">
+            <h3>
+              {active
+                ? active.type === "points"
+                  ? "Assign +" + active.value + " points"
+                  : "Assign foul"
+                : "Player assignment"}
+            </h3>
+            <Button
+              className="btn secondary"
+              disabled={!g.rosters}
+              onClick={() => change((s, t, g) => E.addRosterPlayers(s, t, g))}
+            >
+              Load added players
+            </Button>
+          </div>
+          {active ? (
+            <>
+              <p>
+                {teams[active.side]?.name} · {E.periodName(active.period)} ·{" "}
+                {E.formatClock(active.clock)}
+              </p>
+              <div className="tracker-player-picks">
+                {teams[active.side]?.players.map((p) => (
+                  <Button
+                    key={p.id}
+                    className={
+                      "tracker-player-pick " +
+                      (active.player === p.id ? "assigned" : "")
+                    }
+                    onClick={() => assign(p.id)}
+                  >
+                    <b>#{p.number}</b>
+                    <span>
+                      {p.name}
+                      <small>
+                        {E.playerTotal(g, active.side, p.id)} pts ·{" "}
+                        {E.playerTotal(g, active.side, p.id, "foul")} fouls
+                      </small>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+              {!teams[active.side]?.players.length && (
+                <p className="empty-copy">
+                  Add players on Teams & players, then tap Load added players.
+                  The score remains safe while you complete the roster.
+                </p>
+              )}
+              <Button
+                className="btn secondary"
+                disabled={!active.player}
+                onClick={() => assign("")}
+              >
+                Clear this assignment
+              </Button>
+            </>
+          ) : (
+            <p className="empty-copy">
+              Select an action from the list. The match stays selected after the
+              final whistle so you can finish assigning players.
+            </p>
+          )}
+          <Button
+            className="btn secondary"
+            disabled={!undo}
+            onClick={async () => {
+              if (
+                await change((s, t, g) => {
+                  const e = g.events.find((e) => e.id === undo.id);
+                  if (!e || e.player !== undo.next)
+                    throw Error(
+                      "This assignment changed elsewhere. Review it in All actions.",
+                    );
+                  E.assignEvent(s, t, g, undo.id, undo.previous);
+                })
+              )
+                setUndo(null);
+            }}
+          >
+            Undo last assignment
+          </Button>
+        </section>
+      </div>
+      <div className="tracker-stats">
+        {teams.map((team, side) => (
+          <section className="panel" key={side}>
+            <div className="section-title">
+              <h3>{team?.name ?? "Awaiting team"}</h3>
+              <span>{E.playerTotal(g, side, "")} points unassigned</span>
+            </div>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>PTS</th>
+                    <th>1PT</th>
+                    <th>2PT</th>
+                    <th>3PT</th>
+                    <th>Fouls</th>
+                    <th>New foul</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {team?.players.map((p) => {
+                    const fouls = E.playerTotal(g, side, p.id, "foul");
+                    return (
+                      <tr
+                        key={p.id}
+                        className={fouls >= t.foulLimit ? "fouled-out" : ""}
+                      >
+                        <td>
+                          <b>#{p.number}</b> {p.name}
+                        </td>
+                        <td>
+                          <b>{E.playerTotal(g, side, p.id)}</b>
+                        </td>
+                        {[1, 2, 3].map((n) => (
+                          <td key={n}>
+                            {
+                              g.events.filter(
+                                (e) =>
+                                  e.type === "points" &&
+                                  e.side === side &&
+                                  e.player === p.id &&
+                                  e.value === n,
+                              ).length
+                            }
+                          </td>
+                        ))}
+                        <td>
+                          {fouls}/{t.foulLimit}
+                          {fouls >= t.foulLimit ? " · Out" : ""}
+                        </td>
+                        <td>
+                          <Button
+                            className="btn small secondary"
+                            aria-label={"Record new foul for " + p.name}
+                            disabled={
+                              g.status !== "live" ||
+                              !g.rosters ||
+                              fouls >= t.foulLimit
+                            }
+                            onClick={() =>
+                              change((s, t, g) => {
+                                if (g.status !== "live" || !g.rosters)
+                                  throw Error(
+                                    "The dashboard operator must start the match first.",
+                                  );
+                                const scorer = g.scorer;
+                                E.recordTeamEvent(
+                                  s,
+                                  t,
+                                  g,
+                                  side,
+                                  "foul",
+                                  1,
+                                  scorer,
+                                );
+                                E.assignEvent(
+                                  s,
+                                  t,
+                                  g,
+                                  g.events[g.events.length - 1].id,
+                                  p.id,
+                                );
+                              })
+                            }
+                          >
+                            + Foul
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td>Unassigned</td>
+                    <td>{E.playerTotal(g, side, "")}</td>
+                    <td colSpan={3}>Awaiting player</td>
+                    <td>{E.playerTotal(g, side, "", "foul")}</td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="help">
+              1PT / 2PT / 3PT are made-shot counts. Pending actions are excluded
+              from individual totals until assigned.
+            </p>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}

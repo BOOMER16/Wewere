@@ -1,2 +1,4 @@
-import Dashboard from './dashboard';
-export default function Home(){return <Dashboard initialPage="teams"/>;}
+import Dashboard from "./dashboard";
+export default function Home() {
+  return <Dashboard initialPage="teams" />;
+}

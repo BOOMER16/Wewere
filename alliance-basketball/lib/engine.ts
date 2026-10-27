@@ -1,74 +1,744 @@
-import {workspaceSchema} from './schema';
-export type Player={id:string;name:string;number:string};
-export type Team={id:string;name:string;players:Player[]};
-export type Source={team:string}|{winner:string};
-export type Event={id:string;type:'points'|'foul'|'lineup';side:number;player:string;value:number;period:number;clock:number;at:string;note?:string};
-export type Game={id:string;label:string;round:string;stage:'knockout'|'league';sources:[Source,Source];status:'ready'|'live'|'final';period:number;remaining:number;runUntil:number|null;events:Event[];lineups:[string[],string[]];rosters:[Team,Team]|null;winner:number|null;scheduled:string;court:string;scorer:string};
-export type Tournament={id:string;name:string;date:string;venue:string;mode:'knockout'|'league'|'combined';teamIds:string[];slots:string[];finalists:number;doubleRound:boolean;quarterMinutes:number;overtimeMinutes:number;foulLimit:number;games:Game[];drawAt:string;drawMethod:string;swaps:number;tieOrder:string[]};
-export type Report={id:string;matchId:string;tournamentId:string;tournamentName:string;savedAt:string;game:Game;teams:[Team,Team];notes:string};
-export type State={version:2;teams:Team[];tournaments:Tournament[];reports:Report[];staffEmails:string[]};
-let clockOffset=0;export function setClockOffset(n:number){if(Number.isFinite(n))clockOffset=n;}export const now=()=>Date.now()+clockOffset;
-export const uid=()=>crypto.randomUUID();
-export const copy=<T,>(x:T):T=>JSON.parse(JSON.stringify(x));
-export function initialState():State{const names=['Fallen Angels','Royal Devils','Phoenix','Law Hustlers','BB Block 2','UnderDogs 03','Aviators','Design Thinkers','Predators','Meow'];const teams=names.map(name=>({id:uid(),name,players:[]}));return {version:2,teams,tournaments:[newTournament('Alliance intramurals','2026-10-06',teams.map(t=>t.id))],reports:[],staffEmails:[]};}
-export function newTournament(name:string,date:string,teamIds:string[]=[]):Tournament{return {id:uid(),name,date,venue:'Alliance Basketball Court',mode:'knockout',teamIds,slots:[],finalists:4,doubleRound:false,quarterMinutes:10,overtimeMinutes:5,foulLimit:5,games:[],drawAt:'',drawMethod:'',swaps:0,tieOrder:[]};}
-export function randomInt(max:number){const limit=Math.floor(4294967296/max)*max;let x:number;do{x=crypto.getRandomValues(new Uint32Array(1))[0];}while(x>=limit);return x%max;}
-export function shuffle<T>(items:T[]):T[]{const a=[...items];for(let i=a.length-1;i>0;i--){const j=randomInt(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
-export function gameTeamId(t:Tournament,source:Source):string|null{if('team'in source)return source.team;const g=t.games.find(g=>g.id===source.winner);if(!g||g.status!=='final'||g.winner===null)return null;return gameTeamId(t,g.sources[g.winner]);}
-export function matchTeams(s:State,t:Tournament,g:Game):(Team|null)[]{return g.rosters??g.sources.map(src=>s.teams.find(team=>team.id===gameTeamId(t,src))??null);}
-export function sourceName(s:State,t:Tournament,src:Source){const id=gameTeamId(t,src);return s.teams.find(team=>team.id===id)?.name??('winner'in src?'Winner '+(t.games.find(g=>g.id===src.winner)?.label??''):'Unknown team');}
-export function total(g:Game,side:number,period?:number){return g.events.filter(e=>e.type==='points'&&e.side===side&&(period===undefined||e.period===period)).reduce((n,e)=>n+e.value,0);}
-export function playerTotal(g:Game,side:number,id:string,type:'points'|'foul'='points'){return g.events.filter(e=>e.type===type&&e.side===side&&e.player===id).reduce((n,e)=>n+e.value,0);}
-export function periodName(p:number){return p<4?'Q'+(p+1):'OT'+(p-3);}
-export function timeLeft(g:Game,timestamp=now()){return g.runUntil===null?g.remaining:Math.max(0,g.runUntil-timestamp);}
-export function formatClock(ms:number){const n=Math.ceil(ms/1000);return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');}
-export function pause(g:Game){g.remaining=timeLeft(g);g.runUntil=null;}
-export function generate(t:Tournament,randomize=true){
- if(t.teamIds.length<2||t.teamIds.length>64)throw Error('Register between 2 and 64 teams.');
- if(t.mode==='combined'&&(t.finalists<2||t.finalists>=t.teamIds.length))throw Error('The final league needs at least 2 teams and fewer teams than the full draw.');
- if(t.mode==='league'&&t.teamIds.length>32)throw Error('League mode supports up to 32 teams.');
- t.slots=randomize?shuffle(t.teamIds):[...t.slots];t.games=[];if(randomize||!t.tieOrder.length)t.tieOrder=shuffle(t.teamIds);
- let number=0;
- const add=(a:Source,b:Source,round:string,stage:'knockout'|'league'):Source=>{const id=uid();t.games.push({id,label:'M'+(++number),round,stage,sources:[a,b],status:'ready',period:0,remaining:t.quarterMinutes*60000,runUntil:null,events:[],lineups:[[],[]],rosters:null,winner:null,scheduled:'',court:t.venue,scorer:''});return {winner:id};};
- const knock=(ids:string[],prefix=''):Source=>{
-  if(ids.length===1)return {team:ids[0]};
-  const size=2**Math.ceil(Math.log2(ids.length));let seeds=[1,2];while(seeds.length<size){const sum=seeds.length*2+1;seeds=seeds.flatMap(n=>[n,sum-n]);}
-  let layer:(Source|null)[]=seeds.map(n=>n<=ids.length?{team:ids[n-1]}:null),level=0;
-  while(layer.length>1){const remaining=layer.length/2;const round=prefix+(remaining===1?'Final':remaining===2?'Semifinals':remaining===4?'Quarterfinals':'Round of '+layer.length);const next:(Source|null)[]=[];for(let i=0;i<layer.length;i+=2){const a=layer[i],b=layer[i+1];next.push(!a?b:!b?a:add(a,b,round,'knockout'));}layer=next;level++;}return layer[0]!;
- };
- const league=(sources:Source[],prefix='League')=>{const list:(Source|null)[]=[...sources];if(list.length%2)list.push(null);const rounds=list.length-1;for(let leg=0;leg<(t.doubleRound?2:1);leg++){const rotating=[...list];for(let r=0;r<rounds;r++){for(let i=0;i<rotating.length/2;i++){const a=rotating[i],b=rotating[rotating.length-1-i];if(a&&b){const flip=(r+i+leg)%2;add(flip?b:a,flip?a:b,`${prefix} · round ${leg*rounds+r+1}`,'league');}}rotating.splice(1,0,rotating.pop()!);}}};
- if(t.mode==='knockout')knock(t.slots);
- if(t.mode==='league')league(t.slots.map(team=>({team})));
- if(t.mode==='combined'){const groups=Array.from({length:t.finalists},()=>[] as string[]);t.slots.forEach((id,i)=>groups[i%t.finalists].push(id));const finalists=groups.map((g,i)=>knock(g,`Qualifier ${i+1} · `));league(finalists,'Final league');}
- if(randomize){t.drawAt=new Date().toISOString();t.drawMethod='Cryptographic Fisher–Yates random draw';t.swaps=0;}else t.swaps++;
+import { workspaceSchema } from "./schema";
+export type Player = { id: string; name: string; number: string };
+export type Team = { id: string; name: string; players: Player[] };
+export type Source = { team: string } | { winner: string };
+export type Event = {
+  id: string;
+  type: "points" | "foul" | "lineup";
+  side: number;
+  player: string;
+  value: number;
+  period: number;
+  clock: number;
+  at: string;
+  note?: string;
+};
+export type Game = {
+  id: string;
+  label: string;
+  round: string;
+  stage: "knockout" | "league";
+  sources: [Source, Source];
+  status: "ready" | "live" | "final";
+  period: number;
+  remaining: number;
+  runUntil: number | null;
+  events: Event[];
+  lineups: [string[], string[]];
+  rosters: [Team, Team] | null;
+  winner: number | null;
+  scheduled: string;
+  court: string;
+  scorer: string;
+};
+export type Tournament = {
+  id: string;
+  name: string;
+  date: string;
+  venue: string;
+  mode: "knockout" | "league" | "combined";
+  teamIds: string[];
+  slots: string[];
+  finalists: number;
+  doubleRound: boolean;
+  quarterMinutes: number;
+  overtimeMinutes: number;
+  foulLimit: number;
+  games: Game[];
+  drawAt: string;
+  drawMethod: string;
+  swaps: number;
+  tieOrder: string[];
+};
+export type Report = {
+  id: string;
+  matchId: string;
+  tournamentId: string;
+  tournamentName: string;
+  savedAt: string;
+  game: Game;
+  teams: [Team, Team];
+  notes: string;
+};
+export type State = {
+  version: 2;
+  teams: Team[];
+  tournaments: Tournament[];
+  reports: Report[];
+  staffEmails: string[];
+};
+let clockOffset = 0;
+export function setClockOffset(n: number) {
+  if (Number.isFinite(n)) clockOffset = n;
 }
-export function standingRows(s:State,t:Tournament){const games=t.games.filter(g=>g.stage==='league');const ids=[...new Set(games.flatMap(g=>g.sources.map(src=>gameTeamId(t,src))).filter(Boolean))] as string[];const rows=ids.map(id=>({id,name:s.teams.find(x=>x.id===id)?.name??'',played:0,wins:0,losses:0,pf:0,pa:0}));for(const g of games.filter(g=>g.status==='final')){const a=rows.find(r=>r.id===gameTeamId(t,g.sources[0])),b=rows.find(r=>r.id===gameTeamId(t,g.sources[1]));if(!a||!b)continue;const x=total(g,0),y=total(g,1);a.played++;b.played++;a.pf+=x;a.pa+=y;b.pf+=y;b.pa+=x;if(x>y){a.wins++;b.losses++;}else{b.wins++;a.losses++;}}return rows.sort((a,b)=>b.wins-a.wins||(b.pf-b.pa)-(a.pf-a.pa)||b.pf-a.pf||t.tieOrder.indexOf(a.id)-t.tieOrder.indexOf(b.id));}
-export function startMatch(s:State,t:Tournament,g:Game,scorer:string){const teams=matchTeams(s,t,g);if(teams.some(team=>!team))throw Error('Finish the feeder matches first.');if(g.status==='final')throw Error('Reopen the result before making changes.');if(!g.rosters){g.rosters=copy(teams as [Team,Team]);g.lineups=[[],[]];}g.status='live';g.scorer=scorer;}
-export function recordEvent(s:State,t:Tournament,g:Game,side:number,player:string,type:'points'|'foul',value:number,scorer:string){startMatch(s,t,g,scorer);if(!g.lineups[side].includes(player))throw Error('Select a player who is on court.');if(playerTotal(g,side,player,'foul')>=t.foulLimit)throw Error('This player has reached the foul limit.');g.events.push({id:uid(),type,side,player,value,period:g.period,clock:timeLeft(g),at:new Date().toISOString()});if(type==='foul'&&playerTotal(g,side,player,'foul')>=t.foulLimit)g.lineups[side]=g.lineups[side].filter(id=>id!==player);}
-export function snapshot(s:State,t:Tournament,g:Game):Report{const teams=matchTeams(s,t,g);if(teams.some(x=>!x))throw Error('Teams are not confirmed.');return {id:uid(),matchId:g.id,tournamentId:t.id,tournamentName:t.name,savedAt:new Date().toISOString(),game:copy(g),teams:copy(teams as [Team,Team]),notes:''};}
-export function finish(s:State,t:Tournament,g:Game){if(!g.rosters)throw Error('Open the score desk and confirm the rosters first.');if(total(g,0)===total(g,1))throw Error('Scores are tied. Play overtime before confirming a winner.');pause(g);g.status='final';g.winner=total(g,0)>total(g,1)?0:1;const report=snapshot(s,t,g);const prior=s.reports.find(r=>r.matchId===g.id);if(prior){report.id=prior.id;report.notes=prior.notes;s.reports=s.reports.map(r=>r.id===prior.id?report:r);}else s.reports.push(report);}
-export function dependents(t:Tournament,id:string){const list:string[]=[];for(const g of t.games)if(g.sources.some(src=>'winner'in src&&(src.winner===id||list.includes(src.winner))))list.push(g.id);return list;}
-export function resetGame(t:Tournament,g:Game){g.status='ready';g.period=0;g.remaining=t.quarterMinutes*60000;g.runUntil=null;g.events=[];g.lineups=[[],[]];g.rosters=null;g.winner=null;}
-export function reopen(t:Tournament,g:Game){for(const id of dependents(t,g.id)){const child=t.games.find(g=>g.id===id)!;resetGame(t,child);}pause(g);g.status='live';g.winner=null;}
-export function assertState(s:State){ const parsed=workspaceSchema.safeParse(s);if(!parsed.success)throw Error("Invalid workspace data: "+parsed.error.issues[0].path.join(".")+" "+parsed.error.issues[0].message);
- if(!s||s.version!==2||!Array.isArray(s.teams)||!Array.isArray(s.tournaments)||!Array.isArray(s.reports)||!Array.isArray(s.staffEmails))throw Error('Invalid dashboard backup.');
- if(s.teams.length>500||s.tournaments.length>100||s.reports.length>5000||s.staffEmails.length>100)throw Error('Workspace limit reached. Export old tournaments to free space.');
- const str=(x:unknown,max=100)=>typeof x==='string'&&x.length>0&&x.length<=max;
- const ids=new Set<string>();
- for(const team of s.teams){if(!str(team.id)||ids.has(team.id)||!str(team.name,80)||!Array.isArray(team.players)||team.players.length>50)throw Error('Invalid team data.');ids.add(team.id);const pids=new Set(),numbers=new Set();for(const p of team.players){if(!str(p.id)||pids.has(p.id)||!str(p.name,80)||typeof p.number!=='string'||!/^\d{1,3}$/.test(p.number)||numbers.has(p.number))throw Error('Player names and unique jersey numbers are required.');pids.add(p.id);numbers.add(p.number);}}
- for(const email of s.staffEmails)if(typeof email!=='string'||email.length>254||!email.includes('@'))throw Error('Invalid staff email.');
- const tids=new Set();
- for(const t of s.tournaments){if(!str(t.id)||tids.has(t.id)||!str(t.name,100)||!['knockout','league','combined'].includes(t.mode)||!Array.isArray(t.teamIds)||t.teamIds.length>64||new Set(t.teamIds).size!==t.teamIds.length||t.teamIds.some(id=>!ids.has(id))||!Array.isArray(t.games)||t.games.length>1200||!Array.isArray(t.slots)||!Array.isArray(t.tieOrder))throw Error('Invalid tournament.');tids.add(t.id);if(![t.quarterMinutes,t.overtimeMinutes,t.foulLimit].every(n=>Number.isInteger(n)&&n>=1&&n<=60))throw Error('Invalid match settings.');const seen=new Set<string>();for(const g of t.games){if(!str(g.id)||seen.has(g.id)||!Array.isArray(g.sources)||g.sources.length!==2||!g.sources.every(src=>src&&(('team'in src&&t.teamIds.includes(src.team))||('winner'in src&&seen.has(src.winner))))||!['ready','live','final'].includes(g.status)||!Number.isInteger(g.period)||g.period<0||g.period>29||!Number.isFinite(g.remaining)||g.remaining<0||g.remaining>6000000||(g.runUntil!==null&&!Number.isFinite(g.runUntil))||!Array.isArray(g.events)||g.events.length>10000||!Array.isArray(g.lineups)||g.lineups.length!==2||g.lineups.some(a=>!Array.isArray(a)||a.length>5||new Set(a).size!==a.length))throw Error('Invalid match data.');seen.add(g.id);for(const e of g.events){if(!str(e.id)||!['points','foul','lineup'].includes(e.type)||![0,1].includes(e.side)||!Number.isInteger(e.period)||e.period<0||e.period>g.period||!Number.isFinite(e.clock)||e.clock<0||!Number.isInteger(e.value)||(e.type==='points'&&![1,2,3].includes(e.value))||(e.type==='foul'&&e.value!==1)||!(e.player===''&&e.type!=='lineup')&&!g.rosters?.[e.side]?.players.some(p=>p.id===e.player))throw Error('Invalid scoring event.');}if(g.rosters&&(!Array.isArray(g.rosters)||g.rosters.length!==2))throw Error('Invalid match roster.');if(g.status==='final'&&(g.winner!==(total(g,0)>total(g,1)?0:1)||total(g,0)===total(g,1)||g.runUntil!==null))throw Error('Invalid final result.');if(g.status!=='final'&&g.winner!==null)throw Error('Invalid winner.');if(g.status!=='ready'&&g.sources.some(src=>'winner'in src&&t.games.find(x=>x.id===src.winner)?.status!=='final'))throw Error('Feeder matches must finish first.');}}
- for(const r of s.reports){if(!str(r.id)||!str(r.matchId)||!str(r.tournamentName)||typeof r.notes!=='string'||r.notes.length>20000||!r.game||!Array.isArray(r.teams)||r.teams.length!==2)throw Error('Invalid match report.');}
+export const now = () => Date.now() + clockOffset;
+export const uid = () => crypto.randomUUID();
+export const copy = <T>(x: T): T => JSON.parse(JSON.stringify(x));
+export function initialState(): State {
+  const names = [
+    "Fallen Angels",
+    "Royal Devils",
+    "Phoenix",
+    "Law Hustlers",
+    "BB Block 2",
+    "UnderDogs 03",
+    "Aviators",
+    "Design Thinkers",
+    "Predators",
+    "Meow",
+  ];
+  const teams = names.map((name) => ({ id: uid(), name, players: [] }));
+  return {
+    version: 2,
+    teams,
+    tournaments: [
+      newTournament(
+        "Alliance intramurals",
+        "2026-10-06",
+        teams.map((t) => t.id),
+      ),
+    ],
+    reports: [],
+    staffEmails: [],
+  };
+}
+export function newTournament(
+  name: string,
+  date: string,
+  teamIds: string[] = [],
+): Tournament {
+  return {
+    id: uid(),
+    name,
+    date,
+    venue: "Alliance Basketball Court",
+    mode: "knockout",
+    teamIds,
+    slots: [],
+    finalists: 4,
+    doubleRound: false,
+    quarterMinutes: 10,
+    overtimeMinutes: 5,
+    foulLimit: 5,
+    games: [],
+    drawAt: "",
+    drawMethod: "",
+    swaps: 0,
+    tieOrder: [],
+  };
+}
+export function randomInt(max: number) {
+  const limit = Math.floor(4294967296 / max) * max;
+  let x: number;
+  do {
+    x = crypto.getRandomValues(new Uint32Array(1))[0];
+  } while (x >= limit);
+  return x % max;
+}
+export function shuffle<T>(items: T[]): T[] {
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+export function gameTeamId(t: Tournament, source: Source): string | null {
+  if ("team" in source) return source.team;
+  const g = t.games.find((g) => g.id === source.winner);
+  if (!g || g.status !== "final" || g.winner === null) return null;
+  return gameTeamId(t, g.sources[g.winner]);
+}
+export function matchTeams(s: State, t: Tournament, g: Game): (Team | null)[] {
+  return (
+    g.rosters ??
+    g.sources.map(
+      (src) => s.teams.find((team) => team.id === gameTeamId(t, src)) ?? null,
+    )
+  );
+}
+export function sourceName(s: State, t: Tournament, src: Source) {
+  const id = gameTeamId(t, src);
+  return (
+    s.teams.find((team) => team.id === id)?.name ??
+    ("winner" in src
+      ? "Winner " + (t.games.find((g) => g.id === src.winner)?.label ?? "")
+      : "Unknown team")
+  );
+}
+export function total(g: Game, side: number, period?: number) {
+  return g.events
+    .filter(
+      (e) =>
+        e.type === "points" &&
+        e.side === side &&
+        (period === undefined || e.period === period),
+    )
+    .reduce((n, e) => n + e.value, 0);
+}
+export function playerTotal(
+  g: Game,
+  side: number,
+  id: string,
+  type: "points" | "foul" = "points",
+) {
+  return g.events
+    .filter((e) => e.type === type && e.side === side && e.player === id)
+    .reduce((n, e) => n + e.value, 0);
+}
+export function periodName(p: number) {
+  return p < 4 ? "Q" + (p + 1) : "OT" + (p - 3);
+}
+export function timeLeft(g: Game, timestamp = now()) {
+  return g.runUntil === null
+    ? g.remaining
+    : Math.max(0, g.runUntil - timestamp);
+}
+export function formatClock(ms: number) {
+  const n = Math.ceil(ms / 1000);
+  return (
+    String(Math.floor(n / 60)).padStart(2, "0") +
+    ":" +
+    String(n % 60).padStart(2, "0")
+  );
+}
+export function pause(g: Game) {
+  g.remaining = timeLeft(g);
+  g.runUntil = null;
+}
+export function generate(t: Tournament, randomize = true) {
+  if (t.teamIds.length < 2 || t.teamIds.length > 64)
+    throw Error("Register between 2 and 64 teams.");
+  if (
+    t.mode === "combined" &&
+    (t.finalists < 2 || t.finalists >= t.teamIds.length)
+  )
+    throw Error(
+      "The final league needs at least 2 teams and fewer teams than the full draw.",
+    );
+  if (t.mode === "league" && t.teamIds.length > 32)
+    throw Error("League mode supports up to 32 teams.");
+  t.slots = randomize ? shuffle(t.teamIds) : [...t.slots];
+  t.games = [];
+  if (randomize || !t.tieOrder.length) t.tieOrder = shuffle(t.teamIds);
+  let number = 0;
+  const add = (
+    a: Source,
+    b: Source,
+    round: string,
+    stage: "knockout" | "league",
+  ): Source => {
+    const id = uid();
+    t.games.push({
+      id,
+      label: "M" + ++number,
+      round,
+      stage,
+      sources: [a, b],
+      status: "ready",
+      period: 0,
+      remaining: t.quarterMinutes * 60000,
+      runUntil: null,
+      events: [],
+      lineups: [[], []],
+      rosters: null,
+      winner: null,
+      scheduled: "",
+      court: t.venue,
+      scorer: "",
+    });
+    return { winner: id };
+  };
+  const knock = (ids: string[], prefix = ""): Source => {
+    if (ids.length === 1) return { team: ids[0] };
+    const size = 2 ** Math.ceil(Math.log2(ids.length));
+    let seeds = [1, 2];
+    while (seeds.length < size) {
+      const sum = seeds.length * 2 + 1;
+      seeds = seeds.flatMap((n) => [n, sum - n]);
+    }
+    let layer: (Source | null)[] = seeds.map((n) =>
+        n <= ids.length ? { team: ids[n - 1] } : null,
+      ),
+      level = 0;
+    while (layer.length > 1) {
+      const remaining = layer.length / 2;
+      const round =
+        prefix +
+        (remaining === 1
+          ? "Final"
+          : remaining === 2
+            ? "Semifinals"
+            : remaining === 4
+              ? "Quarterfinals"
+              : "Round of " + layer.length);
+      const next: (Source | null)[] = [];
+      for (let i = 0; i < layer.length; i += 2) {
+        const a = layer[i],
+          b = layer[i + 1];
+        next.push(!a ? b : !b ? a : add(a, b, round, "knockout"));
+      }
+      layer = next;
+      level++;
+    }
+    return layer[0]!;
+  };
+  const league = (sources: Source[], prefix = "League") => {
+    const list: (Source | null)[] = [...sources];
+    if (list.length % 2) list.push(null);
+    const rounds = list.length - 1;
+    for (let leg = 0; leg < (t.doubleRound ? 2 : 1); leg++) {
+      const rotating = [...list];
+      for (let r = 0; r < rounds; r++) {
+        for (let i = 0; i < rotating.length / 2; i++) {
+          const a = rotating[i],
+            b = rotating[rotating.length - 1 - i];
+          if (a && b) {
+            const flip = (r + i + leg) % 2;
+            add(
+              flip ? b : a,
+              flip ? a : b,
+              `${prefix} · round ${leg * rounds + r + 1}`,
+              "league",
+            );
+          }
+        }
+        rotating.splice(1, 0, rotating.pop()!);
+      }
+    }
+  };
+  if (t.mode === "knockout") knock(t.slots);
+  if (t.mode === "league") league(t.slots.map((team) => ({ team })));
+  if (t.mode === "combined") {
+    const groups = Array.from({ length: t.finalists }, () => [] as string[]);
+    t.slots.forEach((id, i) => groups[i % t.finalists].push(id));
+    const finalists = groups.map((g, i) => knock(g, `Qualifier ${i + 1} · `));
+    league(finalists, "Final league");
+  }
+  if (randomize) {
+    t.drawAt = new Date().toISOString();
+    t.drawMethod = "Cryptographic Fisher–Yates random draw";
+    t.swaps = 0;
+  } else t.swaps++;
+}
+export function standingRows(s: State, t: Tournament) {
+  const games = t.games.filter((g) => g.stage === "league");
+  const ids = [
+    ...new Set(
+      games
+        .flatMap((g) => g.sources.map((src) => gameTeamId(t, src)))
+        .filter(Boolean),
+    ),
+  ] as string[];
+  const rows = ids.map((id) => ({
+    id,
+    name: s.teams.find((x) => x.id === id)?.name ?? "",
+    played: 0,
+    wins: 0,
+    losses: 0,
+    pf: 0,
+    pa: 0,
+  }));
+  for (const g of games.filter((g) => g.status === "final")) {
+    const a = rows.find((r) => r.id === gameTeamId(t, g.sources[0])),
+      b = rows.find((r) => r.id === gameTeamId(t, g.sources[1]));
+    if (!a || !b) continue;
+    const x = total(g, 0),
+      y = total(g, 1);
+    a.played++;
+    b.played++;
+    a.pf += x;
+    a.pa += y;
+    b.pf += y;
+    b.pa += x;
+    if (x > y) {
+      a.wins++;
+      b.losses++;
+    } else {
+      b.wins++;
+      a.losses++;
+    }
+  }
+  return rows.sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.pf - b.pa - (a.pf - a.pa) ||
+      b.pf - a.pf ||
+      t.tieOrder.indexOf(a.id) - t.tieOrder.indexOf(b.id),
+  );
+}
+export function startMatch(s: State, t: Tournament, g: Game, scorer: string) {
+  const teams = matchTeams(s, t, g);
+  if (teams.some((team) => !team))
+    throw Error("Finish the feeder matches first.");
+  if (g.status === "final")
+    throw Error("Reopen the result before making changes.");
+  if (!g.rosters) {
+    g.rosters = copy(teams as [Team, Team]);
+    g.lineups = [[], []];
+  }
+  g.status = "live";
+  g.scorer = scorer;
+}
+export function recordEvent(
+  s: State,
+  t: Tournament,
+  g: Game,
+  side: number,
+  player: string,
+  type: "points" | "foul",
+  value: number,
+  scorer: string,
+) {
+  startMatch(s, t, g, scorer);
+  if (!g.lineups[side].includes(player))
+    throw Error("Select a player who is on court.");
+  if (playerTotal(g, side, player, "foul") >= t.foulLimit)
+    throw Error("This player has reached the foul limit.");
+  g.events.push({
+    id: uid(),
+    type,
+    side,
+    player,
+    value,
+    period: g.period,
+    clock: timeLeft(g),
+    at: new Date().toISOString(),
+  });
+  if (type === "foul" && playerTotal(g, side, player, "foul") >= t.foulLimit)
+    g.lineups[side] = g.lineups[side].filter((id) => id !== player);
+}
+export function snapshot(s: State, t: Tournament, g: Game): Report {
+  const teams = matchTeams(s, t, g);
+  if (teams.some((x) => !x)) throw Error("Teams are not confirmed.");
+  return {
+    id: uid(),
+    matchId: g.id,
+    tournamentId: t.id,
+    tournamentName: t.name,
+    savedAt: new Date().toISOString(),
+    game: copy(g),
+    teams: copy(teams as [Team, Team]),
+    notes: "",
+  };
+}
+export function finish(s: State, t: Tournament, g: Game) {
+  if (!g.rosters)
+    throw Error("Open the score desk and confirm the rosters first.");
+  if (total(g, 0) === total(g, 1))
+    throw Error("Scores are tied. Play overtime before confirming a winner.");
+  pause(g);
+  g.status = "final";
+  g.winner = total(g, 0) > total(g, 1) ? 0 : 1;
+  const report = snapshot(s, t, g);
+  const prior = s.reports.find((r) => r.matchId === g.id);
+  if (prior) {
+    report.id = prior.id;
+    report.notes = prior.notes;
+    s.reports = s.reports.map((r) => (r.id === prior.id ? report : r));
+  } else s.reports.push(report);
+}
+export function dependents(t: Tournament, id: string) {
+  const list: string[] = [];
+  for (const g of t.games)
+    if (
+      g.sources.some(
+        (src) =>
+          "winner" in src && (src.winner === id || list.includes(src.winner)),
+      )
+    )
+      list.push(g.id);
+  return list;
+}
+export function resetGame(t: Tournament, g: Game) {
+  g.status = "ready";
+  g.period = 0;
+  g.remaining = t.quarterMinutes * 60000;
+  g.runUntil = null;
+  g.events = [];
+  g.lineups = [[], []];
+  g.rosters = null;
+  g.winner = null;
+}
+export function reopen(t: Tournament, g: Game) {
+  for (const id of dependents(t, g.id)) {
+    const child = t.games.find((g) => g.id === id)!;
+    resetGame(t, child);
+  }
+  pause(g);
+  g.status = "live";
+  g.winner = null;
+}
+export function assertState(s: State) {
+  const parsed = workspaceSchema.safeParse(s);
+  if (!parsed.success)
+    throw Error(
+      "Invalid workspace data: " +
+        parsed.error.issues[0].path.join(".") +
+        " " +
+        parsed.error.issues[0].message,
+    );
+  if (
+    !s ||
+    s.version !== 2 ||
+    !Array.isArray(s.teams) ||
+    !Array.isArray(s.tournaments) ||
+    !Array.isArray(s.reports) ||
+    !Array.isArray(s.staffEmails)
+  )
+    throw Error("Invalid dashboard backup.");
+  if (
+    s.teams.length > 500 ||
+    s.tournaments.length > 100 ||
+    s.reports.length > 5000 ||
+    s.staffEmails.length > 100
+  )
+    throw Error(
+      "Workspace limit reached. Export old tournaments to free space.",
+    );
+  const str = (x: unknown, max = 100) =>
+    typeof x === "string" && x.length > 0 && x.length <= max;
+  const ids = new Set<string>();
+  for (const team of s.teams) {
+    if (
+      !str(team.id) ||
+      ids.has(team.id) ||
+      !str(team.name, 80) ||
+      !Array.isArray(team.players) ||
+      team.players.length > 50
+    )
+      throw Error("Invalid team data.");
+    ids.add(team.id);
+    const pids = new Set(),
+      numbers = new Set();
+    for (const p of team.players) {
+      if (
+        !str(p.id) ||
+        pids.has(p.id) ||
+        !str(p.name, 80) ||
+        typeof p.number !== "string" ||
+        !/^\d{1,3}$/.test(p.number) ||
+        numbers.has(p.number)
+      )
+        throw Error("Player names and unique jersey numbers are required.");
+      pids.add(p.id);
+      numbers.add(p.number);
+    }
+  }
+  for (const email of s.staffEmails)
+    if (typeof email !== "string" || email.length > 254 || !email.includes("@"))
+      throw Error("Invalid staff email.");
+  const tids = new Set();
+  for (const t of s.tournaments) {
+    if (
+      !str(t.id) ||
+      tids.has(t.id) ||
+      !str(t.name, 100) ||
+      !["knockout", "league", "combined"].includes(t.mode) ||
+      !Array.isArray(t.teamIds) ||
+      t.teamIds.length > 64 ||
+      new Set(t.teamIds).size !== t.teamIds.length ||
+      t.teamIds.some((id) => !ids.has(id)) ||
+      !Array.isArray(t.games) ||
+      t.games.length > 1200 ||
+      !Array.isArray(t.slots) ||
+      !Array.isArray(t.tieOrder)
+    )
+      throw Error("Invalid tournament.");
+    tids.add(t.id);
+    if (
+      ![t.quarterMinutes, t.overtimeMinutes, t.foulLimit].every(
+        (n) => Number.isInteger(n) && n >= 1 && n <= 60,
+      )
+    )
+      throw Error("Invalid match settings.");
+    const seen = new Set<string>();
+    for (const g of t.games) {
+      if (
+        !str(g.id) ||
+        seen.has(g.id) ||
+        !Array.isArray(g.sources) ||
+        g.sources.length !== 2 ||
+        !g.sources.every(
+          (src) =>
+            src &&
+            (("team" in src && t.teamIds.includes(src.team)) ||
+              ("winner" in src && seen.has(src.winner))),
+        ) ||
+        !["ready", "live", "final"].includes(g.status) ||
+        !Number.isInteger(g.period) ||
+        g.period < 0 ||
+        g.period > 29 ||
+        !Number.isFinite(g.remaining) ||
+        g.remaining < 0 ||
+        g.remaining > 6000000 ||
+        (g.runUntil !== null && !Number.isFinite(g.runUntil)) ||
+        !Array.isArray(g.events) ||
+        g.events.length > 10000 ||
+        !Array.isArray(g.lineups) ||
+        g.lineups.length !== 2 ||
+        g.lineups.some(
+          (a) =>
+            !Array.isArray(a) || a.length > 5 || new Set(a).size !== a.length,
+        )
+      )
+        throw Error("Invalid match data.");
+      seen.add(g.id);
+      for (const e of g.events) {
+        if (
+          !str(e.id) ||
+          !["points", "foul", "lineup"].includes(e.type) ||
+          ![0, 1].includes(e.side) ||
+          !Number.isInteger(e.period) ||
+          e.period < 0 ||
+          e.period > g.period ||
+          !Number.isFinite(e.clock) ||
+          e.clock < 0 ||
+          !Number.isInteger(e.value) ||
+          (e.type === "points" && ![1, 2, 3].includes(e.value)) ||
+          (e.type === "foul" && e.value !== 1) ||
+          (!(e.player === "" && e.type !== "lineup") &&
+            !g.rosters?.[e.side]?.players.some((p) => p.id === e.player))
+        )
+          throw Error("Invalid scoring event.");
+      }
+      if (g.rosters && (!Array.isArray(g.rosters) || g.rosters.length !== 2))
+        throw Error("Invalid match roster.");
+      if (
+        g.status === "final" &&
+        (g.winner !== (total(g, 0) > total(g, 1) ? 0 : 1) ||
+          total(g, 0) === total(g, 1) ||
+          g.runUntil !== null)
+      )
+        throw Error("Invalid final result.");
+      if (g.status !== "final" && g.winner !== null)
+        throw Error("Invalid winner.");
+      if (
+        g.status !== "ready" &&
+        g.sources.some(
+          (src) =>
+            "winner" in src &&
+            t.games.find((x) => x.id === src.winner)?.status !== "final",
+        )
+      )
+        throw Error("Feeder matches must finish first.");
+    }
+  }
+  for (const r of s.reports) {
+    if (
+      !str(r.id) ||
+      !str(r.matchId) ||
+      !str(r.tournamentName) ||
+      typeof r.notes !== "string" ||
+      r.notes.length > 20000 ||
+      !r.game ||
+      !Array.isArray(r.teams) ||
+      r.teams.length !== 2
+    )
+      throw Error("Invalid match report.");
+  }
 }
 
+export function recordTeamEvent(
+  s: State,
+  t: Tournament,
+  g: Game,
+  side: number,
+  type: "points" | "foul",
+  value: number,
+  scorer: string,
+) {
+  startMatch(s, t, g, scorer);
+  g.events.push({
+    id: uid(),
+    type,
+    side,
+    player: "",
+    value,
+    period: g.period,
+    clock: timeLeft(g),
+    at: new Date().toISOString(),
+  });
+}
+export function refreshReport(s: State, t: Tournament, g: Game) {
+  if (g.status !== "final") return;
+  const r = s.reports.find((r) => r.matchId === g.id);
+  if (r) {
+    const fresh = snapshot(s, t, g);
+    Object.assign(r, fresh, { id: r.id, notes: r.notes });
+  }
+}
+export function assignEvent(
+  s: State,
+  t: Tournament,
+  g: Game,
+  eventId: string,
+  player: string,
+) {
+  const e = g.events.find((e) => e.id === eventId);
+  if (!e || e.type === "lineup") throw Error("Choose a score or foul.");
+  if (player && !g.rosters?.[e.side].players.some((p) => p.id === player))
+    throw Error("Choose a player from this match roster.");
+  e.player = player;
+  if (
+    e.type === "foul" &&
+    player &&
+    playerTotal(g, e.side, player, "foul") >= t.foulLimit
+  )
+    g.lineups[e.side] = g.lineups[e.side].filter((id) => id !== player);
+  refreshReport(s, t, g);
+}
+export function addRosterPlayers(s: State, t: Tournament, g: Game) {
+  if (!g.rosters) return;
+  for (const roster of g.rosters) {
+    const team = s.teams.find((x) => x.id === roster.id);
+    for (const p of team?.players ?? [])
+      if (!roster.players.some((x) => x.id === p.id)) {
+        if (roster.players.some((x) => x.number === p.number))
+          throw Error(
+            "A new player has a jersey number already used in this match.",
+          );
+        roster.players.push(copy(p));
+      }
+  }
+  refreshReport(s, t, g);
+}
+export function removeTeam(s: State, id: string) {
+  const affected = s.tournaments.filter((t) => t.teamIds.includes(id));
+  if (affected.some((t) => t.games.some((g) => g.status !== "ready")))
+    throw Error(
+      "This team belongs to a tournament that has started. Keep it until that tournament is deleted; saved reports will remain.",
+    );
+  for (const t of affected) {
+    t.teamIds = t.teamIds.filter((x) => x !== id);
+    t.slots = [];
+    t.games = [];
+    t.tieOrder = [];
+    t.drawAt = "";
+    t.drawMethod = "";
+    t.swaps = 0;
+  }
+  s.teams = s.teams.filter((x) => x.id !== id);
+}
 
-
-export function recordTeamEvent(s:State,t:Tournament,g:Game,side:number,type:'points'|'foul',value:number,scorer:string){startMatch(s,t,g,scorer);g.events.push({id:uid(),type,side,player:'',value,period:g.period,clock:timeLeft(g),at:new Date().toISOString()});}
-export function refreshReport(s:State,t:Tournament,g:Game){if(g.status!=='final')return;const r=s.reports.find(r=>r.matchId===g.id);if(r){const fresh=snapshot(s,t,g);Object.assign(r,fresh,{id:r.id,notes:r.notes});}}
-export function assignEvent(s:State,t:Tournament,g:Game,eventId:string,player:string){const e=g.events.find(e=>e.id===eventId);if(!e||e.type==='lineup')throw Error('Choose a score or foul.');if(player&&!g.rosters?.[e.side].players.some(p=>p.id===player))throw Error('Choose a player from this match roster.');e.player=player;if(e.type==='foul'&&player&&playerTotal(g,e.side,player,'foul')>=t.foulLimit)g.lineups[e.side]=g.lineups[e.side].filter(id=>id!==player);refreshReport(s,t,g);}
-export function addRosterPlayers(s:State,t:Tournament,g:Game){if(!g.rosters)return;for(const roster of g.rosters){const team=s.teams.find(x=>x.id===roster.id);for(const p of team?.players??[])if(!roster.players.some(x=>x.id===p.id)){if(roster.players.some(x=>x.number===p.number))throw Error('A new player has a jersey number already used in this match.');roster.players.push(copy(p));}}refreshReport(s,t,g);}
-export function removeTeam(s:State,id:string){const affected=s.tournaments.filter(t=>t.teamIds.includes(id));if(affected.some(t=>t.games.some(g=>g.status!=='ready')))throw Error('This team belongs to a tournament that has started. Keep it until that tournament is deleted; saved reports will remain.');for(const t of affected){t.teamIds=t.teamIds.filter(x=>x!==id);t.slots=[];t.games=[];t.tieOrder=[];t.drawAt='';t.drawMethod='';t.swaps=0;}s.teams=s.teams.filter(x=>x.id!==id);}
-
-export function correctEvent(g:Game,id:string,value:number){if(g.status==='final')throw Error('Reopen the match before correcting its score.');const e=g.events.find(e=>e.id===id);if(!e||e.type==='lineup')throw Error('Select a basket or foul.');if(value===0){g.events=g.events.filter(x=>x.id!==id);return;}if(e.type!=='points'||![1,2,3].includes(value))throw Error('Use 1, 2 or 3 points.');e.value=value;}
-export function subtractPoint(g:Game,side:number){const e=g.events.slice().reverse().find(e=>e.type==='points'&&e.side===side);if(!e)throw Error('The score is already zero.');correctEvent(g,e.id,e.value-1);}
+export function correctEvent(g: Game, id: string, value: number) {
+  if (g.status === "final")
+    throw Error("Reopen the match before correcting its score.");
+  const e = g.events.find((e) => e.id === id);
+  if (!e || e.type === "lineup") throw Error("Select a basket or foul.");
+  if (value === 0) {
+    g.events = g.events.filter((x) => x.id !== id);
+    return;
+  }
+  if (e.type !== "points" || ![1, 2, 3].includes(value))
+    throw Error("Use 1, 2 or 3 points.");
+  e.value = value;
+}
+export function subtractPoint(g: Game, side: number) {
+  const e = g.events
+    .slice()
+    .reverse()
+    .find((e) => e.type === "points" && e.side === side);
+  if (!e) throw Error("The score is already zero.");
+  correctEvent(g, e.id, e.value - 1);
+}

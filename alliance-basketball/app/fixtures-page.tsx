@@ -1,11 +1,11 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import {
   Shuffle,
-  GripVertical,
   Download,
   Timer,
   Trash2,
   CalendarDays,
+  X,
 } from "lucide-react";
 import {
   Button,
@@ -18,6 +18,7 @@ import {
   download,
 } from "./dashboard";
 import * as E from "@/lib/engine";
+import { Bracket, TeamSlot, layoutBrackets, useTeamDrag } from "./bracket";
 export default function FixturesPage() {
   const { state, t, mutate, busy, notice, ask, go, setSelectedGame } = useApp();
   const [mode, setMode] = useState(t.mode),
@@ -25,7 +26,6 @@ export default function FixturesPage() {
     [doubleRound, setDouble] = useState(t.doubleRound),
     [swap, setSwap] = useState<number | null>(null),
     [schedule, setSchedule] = useState<any>(null);
-  const touch = useRef<any>(null);
   const started = t.games.some((g) => g.status !== "ready");
   function create() {
     const work = () =>
@@ -63,32 +63,49 @@ export default function FixturesPage() {
       notice("Reset the draw before moving teams after play has started.");
       return;
     }
-    ask(
-      "Swap these teams?",
+    const pair =
       (state.teams.find((x) => x.id === t.slots[a])?.name || "Team") +
-        " ↔ " +
-        (state.teams.find((x) => x.id === t.slots[b])?.name || "Team") +
-        ". The bracket will update and schedule times will be cleared.",
-      () =>
-        mutate((s) => {
-          const target = s.tournaments.find((x) => x.id === t.id)!;
-          if (target.games.some((g) => g.status !== "ready"))
-            throw Error(
-              "A match has started on another device. The draw is now locked.",
-            );
-          [target.slots[a], target.slots[b]] = [
-            target.slots[b],
-            target.slots[a],
-          ];
-          E.generate(target, false);
-        }).then((ok) => {
-          if (ok) {
-            notice("Teams swapped. Fixtures updated.");
-            setSwap(null);
-          }
-        }),
-    );
+      " ↔ " +
+      (state.teams.find((x) => x.id === t.slots[b])?.name || "Team");
+    const run = () =>
+      mutate((s) => {
+        const target = s.tournaments.find((x) => x.id === t.id)!;
+        if (target.games.some((g) => g.status !== "ready"))
+          throw Error(
+            "A match has started on another device. The draw is now locked.",
+          );
+        [target.slots[a], target.slots[b]] = [target.slots[b], target.slots[a]];
+        E.generate(target, false);
+      }).then((ok) => {
+        if (ok) {
+          notice("Swapped " + pair + ".");
+          setSwap(null);
+        }
+      });
+    // Swapping rebuilds every match, which drops schedule times. Only ask
+    // when there is something to lose; otherwise a swap is undone by swapping back.
+    if (t.games.some((g) => g.scheduled))
+      ask(
+        "Swap these teams?",
+        pair + ". Schedule times you have set will be cleared.",
+        run,
+      );
+    else run();
   }
+  const { drag, bind, ghost } = useTeamDrag(swapTeams, (slot) =>
+    swap === null ? setSwap(slot) : swapTeams(swap, slot),
+  );
+  const openScore = (g: E.Game) => {
+    setSelectedGame(g.id);
+    go("scoreboard");
+  };
+  const openSchedule = (g: E.Game) =>
+    setSchedule({
+      id: g.id,
+      label: g.label,
+      scheduled: g.scheduled,
+      court: g.court,
+    });
   function exportDraw() {
     download(
       "alliance-fixtures.csv",
@@ -205,7 +222,7 @@ export default function FixturesPage() {
                 <p className="help">
                   {started
                     ? "Locked: play has started."
-                    : "Drag one team onto another to swap. On a phone, tap two positions."}
+                    : "Drag a team onto another team to swap them, or tap two teams."}
                 </p>
               </div>
               <Button
@@ -230,41 +247,6 @@ export default function FixturesPage() {
                 <Trash2 size={15} />
                 Clear fixtures
               </Button>
-            </div>
-            <div className="draw-grid">
-              {t.slots.map((id, i) => (
-                <button
-                  key={i}
-                  disabled={busy || started}
-                  draggable={!started && !busy}
-                  onDragStart={(e) =>
-                    e.dataTransfer.setData("text/plain", String(i))
-                  }
-                  onDragOver={(e) => {
-                    if (!started) e.preventDefault();
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const n = Number(e.dataTransfer.getData("text/plain"));
-                    if (Number.isInteger(n) && n >= 0 && n < t.slots.length)
-                      swapTeams(n, i);
-                  }}
-                  onClick={() =>
-                    swap === null ? setSwap(i) : swapTeams(swap, i)
-                  }
-                  className={"draw-slot " + (swap === i ? "chosen" : "")}
-                  aria-label={
-                    "Draw position " +
-                    (i + 1) +
-                    " " +
-                    state.teams.find((x) => x.id === id)?.name
-                  }
-                >
-                  <span>{i + 1}</span>
-                  <strong>{state.teams.find((x) => x.id === id)?.name}</strong>
-                  <GripVertical size={16} />
-                </button>
-              ))}
             </div>
             <p className="help">
               {t.drawMethod} · {new Date(t.drawAt).toLocaleString()} · {t.swaps}{" "}
@@ -330,166 +312,100 @@ export default function FixturesPage() {
               </p>
             </section>
           )}
-          <p className="help">
-            {started
-              ? "Fixture editing is locked because play has started."
-              : "Drag a named team directly onto another team in the bracket to swap their draw positions. You can also tap two teams. Winner placeholders are filled automatically."}
-          </p>
-          <div className="fixture-rounds">
-            {[...new Set(t.games.map((g) => g.round))].map((round) => (
-              <section className="fixture-round" key={round}>
-                <h3>{round}</h3>
-                {t.games
-                  .filter((g) => g.round === round)
-                  .map((g) => (
-                    <article className="fixture-card" key={g.id}>
-                      <div className="fixture-meta">
-                        <b>{g.label}</b>
-                        <span className={"pill " + g.status}>
-                          {g.status === "final"
-                            ? "Final"
-                            : g.status === "live"
-                              ? "In progress"
-                              : "Upcoming"}
-                        </span>
-                      </div>
-                      {g.sources.map((src, i) => {
-                        const slot =
-                          "team" in src ? t.slots.indexOf(src.team) : -1;
-                        const editable = slot >= 0 && !started && !busy;
-                        return (
-                          <button
-                            type="button"
-                            key={i}
-                            className={
-                              "fixture-team fixture-team-drop " +
-                              (editable ? "editable " : "") +
-                              (slot >= 0 && swap === slot ? "chosen" : "")
-                            }
-                            data-fixture-slot={slot}
-                            aria-label={
-                              (editable ? "Move " : "") +
-                              E.sourceName(state, t, src) +
-                              " in " +
-                              g.label
-                            }
-                            disabled={!editable}
-                            draggable={editable}
-                            onDragStart={(e) => {
-                              e.dataTransfer.effectAllowed = "move";
-                              e.dataTransfer.setData(
-                                "text/plain",
-                                String(slot),
-                              );
-                            }}
-                            onDragOver={(e) => {
-                              if (editable) {
-                                e.preventDefault();
-                                e.dataTransfer.dropEffect = "move";
-                                e.currentTarget.classList.add("drop-target");
-                              }
-                            }}
-                            onDragLeave={(e) =>
-                              e.currentTarget.classList.remove("drop-target")
-                            }
-                            onPointerDown={(e) => {
-                              if (e.pointerType === "touch" && editable) {
-                                touch.current = {
-                                  slot,
-                                  x: e.clientX,
-                                  y: e.clientY,
-                                };
-                                e.currentTarget.setPointerCapture(e.pointerId);
-                              }
-                            }}
-                            onPointerUp={(e) => {
-                              const start = touch.current;
-                              touch.current = null;
-                              if (
-                                !start ||
-                                Math.hypot(
-                                  e.clientX - start.x,
-                                  e.clientY - start.y,
-                                ) < 12
-                              )
-                                return;
-                              const target = document
-                                .elementFromPoint(e.clientX, e.clientY)
-                                ?.closest("[data-fixture-slot]");
-                              if (target) {
-                                const dest = Number(
-                                  target.getAttribute("data-fixture-slot"),
-                                );
-                                if (dest >= 0) {
-                                  e.preventDefault();
-                                  swapTeams(start.slot, dest);
-                                }
-                              }
-                            }}
-                            onPointerCancel={() => {
-                              touch.current = null;
-                            }}
-                            onDrop={(e) => {
-                              e.currentTarget.classList.remove("drop-target");
-                              e.preventDefault();
-                              const value =
-                                e.dataTransfer.getData("text/plain");
-                              if (editable && /^\d+$/.test(value))
-                                swapTeams(Number(value), slot);
-                            }}
-                            onDragEnd={() => setSwap(null)}
-                            onClick={() =>
-                              swap === null
-                                ? setSwap(slot)
-                                : swapTeams(swap, slot)
-                            }
+          {swap !== null && (
+            <div className="swap-banner">
+              <span>
+                Now tap the team to swap with{" "}
+                <b>{state.teams.find((x) => x.id === t.slots[swap])?.name}</b>
+              </span>
+              <Button
+                className="btn small secondary"
+                onClick={() => setSwap(null)}
+              >
+                <X size={14} />
+                Cancel
+              </Button>
+            </div>
+          )}
+          {layoutBrackets(t.games).map((tree) => (
+            <section
+              className="panel bracket-panel"
+              key={tree.placed[0].game.id}
+            >
+              {tree.prefix && <h3>{tree.prefix}</h3>}
+              <Bracket
+                state={state}
+                t={t}
+                tree={tree}
+                editable={!started && !busy}
+                chosen={swap}
+                hover={drag?.hover ?? null}
+                bind={bind}
+                onScore={openScore}
+                onSchedule={openSchedule}
+              />
+            </section>
+          ))}
+          {leagues.length > 0 && (
+            <div className="fixture-rounds">
+              {[...new Set(leagues.map((g) => g.round))].map((round) => (
+                <section className="fixture-round" key={round}>
+                  <h3>{round}</h3>
+                  {leagues
+                    .filter((g) => g.round === round)
+                    .map((g) => (
+                      <article className="fixture-card" key={g.id}>
+                        <div className="fixture-meta">
+                          <b>{g.label}</b>
+                          <span className={"pill " + g.status}>
+                            {g.status === "final"
+                              ? "Final"
+                              : g.status === "live"
+                                ? "In progress"
+                                : "Upcoming"}
+                          </span>
+                        </div>
+                        {[0, 1].map((side) => (
+                          <TeamSlot
+                            key={side}
+                            state={state}
+                            t={t}
+                            game={g}
+                            side={side}
+                            editable={!started && !busy}
+                            chosen={swap}
+                            hover={drag?.hover ?? null}
+                            bind={bind}
+                          />
+                        ))}
+                        <div className="fixture-actions">
+                          <Button
+                            className="btn small secondary"
+                            onClick={() => openScore(g)}
                           >
-                            <span>
-                              {editable && <GripVertical size={15} />}{" "}
-                              {E.sourceName(state, t, src)}
-                            </span>
-                            <strong>
-                              {g.status === "ready" ? "—" : E.total(g, i)}
-                            </strong>
-                          </button>
-                        );
-                      })}
-                      <div className="fixture-actions">
-                        <Button
-                          className="btn small secondary"
-                          onClick={() => {
-                            setSelectedGame(g.id);
-                            go("scoreboard");
-                          }}
-                        >
-                          <Timer size={14} />
-                          Score
-                        </Button>
-                        <Button
-                          className="icon-btn"
-                          aria-label={"Schedule " + g.label}
-                          onClick={() =>
-                            setSchedule({
-                              id: g.id,
-                              label: g.label,
-                              scheduled: g.scheduled,
-                              court: g.court,
-                            })
-                          }
-                        >
-                          <CalendarDays size={16} />
-                        </Button>
-                        <small>
-                          {g.scheduled
-                            ? new Date(g.scheduled).toLocaleString()
-                            : g.court}
-                        </small>
-                      </div>
-                    </article>
-                  ))}
-              </section>
-            ))}
-          </div>
+                            <Timer size={14} />
+                            Score
+                          </Button>
+                          <Button
+                            className="icon-btn"
+                            aria-label={"Schedule " + g.label}
+                            onClick={() => openSchedule(g)}
+                          >
+                            <CalendarDays size={16} />
+                          </Button>
+                          <small>
+                            {g.scheduled
+                              ? new Date(g.scheduled).toLocaleString()
+                              : g.court}
+                          </small>
+                        </div>
+                      </article>
+                    ))}
+                </section>
+              ))}
+            </div>
+          )}
+          {ghost}
         </>
       )}
       {schedule && (

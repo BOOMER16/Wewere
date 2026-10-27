@@ -9,6 +9,7 @@ import {
   ArrowRight,
   UserRound,
   ShieldAlert,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button, Input, Modal, Field, Empty, useApp } from "./dashboard";
 import * as E from "@/lib/engine";
@@ -148,22 +149,29 @@ export default function ScorePage() {
         g.lineups[event.side].push(event.player);
     });
   }
-  const scoreButtons = (side: number) => (
-    <div className="player-controls">
-      <p className="help">Tap to score. Assign the player later below.</p>
-      <div className="scoring-buttons">
-        <Button
-          className="foul-btn"
-          aria-label={names[side] + " minus 1"}
-          disabled={busy || !unlocked || E.total(g, side) === 0}
-          onClick={() => change((s, t, g) => E.subtractPoint(g, side))}
-        >
-          −1
-        </Button>
+  const teamFouls = (side: number) =>
+    g.events.filter(
+      (e) =>
+        e.type === "foul" &&
+        e.side === side &&
+        (g.period >= 3 ? e.period >= 3 : e.period === g.period),
+    ).length;
+  const running = g.runUntil !== null && E.timeLeft(g) > 0;
+  const last = g.events.findLast((e) => e.type !== "lineup");
+  // Buttons sit directly under the team they score for, so the side being
+  // tapped is never in doubt.
+  const teamPanel = (side: number) => (
+    <div className="desk-team">
+      <h3>{names[side]}</h3>
+      <strong className="desk-score" key={E.total(g, side)}>
+        {E.total(g, side)}
+      </strong>
+      <small>Team fouls {teamFouls(side)}</small>
+      <div className="desk-points">
         {[1, 2, 3].map((n) => (
           <Button
             key={n}
-            className="score-btn"
+            className="desk-btn points"
             aria-label={names[side] + " plus " + n}
             disabled={busy || !unlocked}
             onClick={() =>
@@ -175,8 +183,11 @@ export default function ScorePage() {
             +{n}
           </Button>
         ))}
+      </div>
+      <div className="desk-minor">
         <Button
-          className="foul-btn"
+          className="desk-btn foul"
+          aria-label={names[side] + " foul"}
           disabled={busy || !unlocked}
           onClick={() =>
             change((s, t, g) =>
@@ -184,125 +195,148 @@ export default function ScorePage() {
             )
           }
         >
-          <Flag size={17} />
+          <Flag size={18} />
           Foul
+        </Button>
+        <Button
+          className="desk-btn minus"
+          aria-label={names[side] + " minus 1"}
+          disabled={busy || !unlocked || E.total(g, side) === 0}
+          onClick={() => change((s, t, g) => E.subtractPoint(g, side))}
+        >
+          −1
         </Button>
       </div>
     </div>
   );
   return (
     <div className={display ? "display-mode" : "match-day"}>
-      <div className="page-title">
-        <div>
-          <p>{t.name}</p>
-          <h2>Score desk</h2>
-        </div>
-        <div className="row">
-          <select
-            aria-label="Select match"
-            value={g.id}
-            onChange={(e) => setSelectedGame(e.target.value)}
-          >
-            {t.games.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} · {m.round} {m.status === "final" ? "(Final)" : ""}
-              </option>
-            ))}
-          </select>
-          <Button
-            className="btn secondary"
-            onClick={() => {
-              setDisplay(true);
-              document.documentElement.requestFullscreen?.().catch(() => {});
-            }}
-          >
-            <Maximize2 size={16} />
-            Display
-          </Button>
-          <a
-            className="btn secondary"
-            href={"/spectator?match=" + g.id}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Spectator view ↗
-          </a>
-          <a
-            className="btn secondary"
-            href={"/tracker?tournament=" + t.id + "&match=" + g.id}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Player tracker ↗
-          </a>
-          <Button
-            className="btn secondary"
-            onClick={() => setDisplayLink(true)}
-          >
-            Connect display laptop
-          </Button>
-        </div>
+      <div className="desk-bar">
+        <select
+          className="desk-match"
+          aria-label="Select match"
+          value={g.id}
+          onChange={(e) => setSelectedGame(e.target.value)}
+        >
+          {t.games.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} · {m.round} · {E.sourceName(state, t, m.sources[0])} vs{" "}
+              {E.sourceName(state, t, m.sources[1])}
+              {m.status === "final" ? " (Final)" : ""}
+            </option>
+          ))}
+        </select>
+        <span className={"live-state " + g.status}>
+          {g.status === "final"
+            ? "Final result"
+            : running
+              ? "● Clock running"
+              : g.status === "live"
+                ? "Paused"
+                : "Ready for tip-off"}
+        </span>
+        <details className="desk-more">
+          <summary className="btn secondary">
+            <MoreHorizontal size={16} />
+            More
+          </summary>
+          <div className="desk-more-menu">
+            <Button
+              className="btn secondary"
+              onClick={() => {
+                setDisplay(true);
+                document.documentElement.requestFullscreen?.().catch(() => {});
+              }}
+            >
+              <Maximize2 size={16} />
+              Full-screen scoreboard
+            </Button>
+            <a
+              className="btn secondary"
+              href={"/spectator?match=" + g.id}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Spectator view ↗
+            </a>
+            <a
+              className="btn secondary"
+              href={"/tracker?tournament=" + t.id + "&match=" + g.id}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Player tracker ↗
+            </a>
+            <Button
+              className="btn secondary"
+              onClick={() => setDisplayLink(true)}
+            >
+              Connect display laptop
+            </Button>
+          </div>
+        </details>
       </div>
-      <section className="live-board">
-        <div className="board-ribbon">
-          <span>
-            {g.label} / {g.round}
-          </span>
-          <span className={"live-state " + g.status}>
-            {g.status === "final"
-              ? "Final result"
-              : g.runUntil !== null && E.timeLeft(g) > 0
-                ? "● Live clock"
-                : g.status === "live"
-                  ? "Paused"
-                  : "Ready for tip-off"}
-          </span>
-        </div>
-        <div className="board-center">
-          <div className="board-team">
-            <span>Team A</span>
-            <h3>{names[0]}</h3>
-            <strong>{E.total(g, 0)}</strong>
-            <small>
-              Team fouls{" "}
-              {
-                g.events.filter(
-                  (e) =>
-                    e.type === "foul" &&
-                    e.side === 0 &&
-                    (g.period >= 3 ? e.period >= 3 : e.period === g.period),
-                ).length
-              }
-            </small>
-          </div>
-          <div className="board-clock">
-            <img src="/alliance-logo.png" alt="Alliance Basketball" />
-            <span>{E.periodName(g.period)}</span>
+      <section className="live-board desk-board">
+        <div className="desk-grid">
+          {teamPanel(0)}
+          <div className="desk-clock">
+            <span className="desk-period">{E.periodName(g.period)}</span>
             <LiveClock game={g} />
+            <Button
+              className={"desk-btn clock " + (running ? "running" : "")}
+              disabled={busy || !unlocked}
+              onClick={toggleClock}
+            >
+              {running ? <Pause size={22} /> : <Play size={22} />}
+              {running ? "Pause" : "Start"}
+            </Button>
+            <div className="desk-clock-row">
+              <Button
+                className="btn secondary"
+                disabled={!unlocked}
+                onClick={() => {
+                  const seconds = Math.ceil(E.timeLeft(g) / 1000);
+                  setClock({
+                    minutes: Math.floor(seconds / 60),
+                    seconds: seconds % 60,
+                  });
+                }}
+              >
+                Set clock
+              </Button>
+              <Button
+                className="btn secondary"
+                disabled={busy || !unlocked || g.period >= 29}
+                onClick={() =>
+                  ask(
+                    "Advance to " + E.periodName(g.period + 1) + "?",
+                    "The current period ends and a fresh clock is set. All scores and player statistics are retained.",
+                    () =>
+                      change((s, t, g) => {
+                        E.startMatch(s, t, g, user.email);
+                        E.pause(g);
+                        g.period++;
+                        g.remaining =
+                          (g.period < 4
+                            ? t.quarterMinutes
+                            : t.overtimeMinutes) * 60000;
+                      }),
+                  )
+                }
+              >
+                {g.period >= 3 ? "Overtime" : "Next quarter"}
+                <ArrowRight size={15} />
+              </Button>
+            </div>
           </div>
-          <div className="board-team">
-            <span>Team B</span>
-            <h3>{names[1]}</h3>
-            <strong>{E.total(g, 1)}</strong>
-            <small>
-              Team fouls{" "}
-              {
-                g.events.filter(
-                  (e) =>
-                    e.type === "foul" &&
-                    e.side === 1 &&
-                    (g.period >= 3 ? e.period >= 3 : e.period === g.period),
-                ).length
-              }
-            </small>
-          </div>
+          {teamPanel(1)}
         </div>
         <div className="board-footer">
           {g.status === "final"
             ? names[g.winner!] + " wins"
             : teams.some((x) => !x)
               ? "Finish the feeder matches to confirm these teams."
-              : g.court}
+              : g.label + " · " + g.round + " · " + g.court}
         </div>
       </section>
       {display && (
@@ -318,64 +352,33 @@ export default function ScorePage() {
         </Button>
       )}
       <div className="operator">
-        <div className="score-actions">
+        <div className="desk-footer">
           <Button
-            className="btn action"
-            disabled={busy || !unlocked}
-            onClick={toggleClock}
-          >
-            {g.runUntil !== null && E.timeLeft(g) > 0 ? (
-              <Pause size={16} />
-            ) : (
-              <Play size={16} />
-            )}{" "}
-            {g.runUntil !== null ? "Pause clock" : "Start clock"}
-          </Button>
-          <Button
-            className="btn secondary"
-            disabled={!unlocked}
-            onClick={() => {
-              const seconds = Math.ceil(E.timeLeft(g) / 1000);
-              setClock({
-                minutes: Math.floor(seconds / 60),
-                seconds: seconds % 60,
-              });
-            }}
-          >
-            Set clock
-          </Button>
-          <Button
-            className="btn secondary"
-            disabled={busy || !unlocked || g.period >= 29}
-            onClick={() =>
-              ask(
-                "Advance to " + E.periodName(g.period + 1) + "?",
-                "The current period ends and a fresh clock is set. All scores and player statistics are retained.",
-                () =>
-                  change((s, t, g) => {
-                    E.startMatch(s, t, g, user.email);
-                    E.pause(g);
-                    g.period++;
-                    g.remaining =
-                      (g.period < 4 ? t.quarterMinutes : t.overtimeMinutes) *
-                      60000;
-                  }),
-              )
-            }
-          >
-            {g.period >= 3 ? "Start overtime" : "Next quarter"}
-            <ArrowRight size={15} />
-          </Button>
-          <Button
-            className="btn secondary"
+            className="desk-btn undo"
             disabled={busy || !unlocked || !g.events.length}
             onClick={undo}
           >
-            <Undo2 size={15} />
-            Undo last action
+            <Undo2 size={20} />
+            Undo
           </Button>
+          <p className="last-action" aria-live="polite">
+            {last ? (
+              <>
+                Last:{" "}
+                <b>
+                  {last.type === "points" ? "+" + last.value : "Foul"} ·{" "}
+                  {names[last.side]}
+                </b>{" "}
+                <small>
+                  {E.periodName(last.period)} {E.formatClock(last.clock)}
+                </small>
+              </>
+            ) : (
+              "Tap +1, +2, +3 or Foul under a team to record the game."
+            )}
+          </p>
           <Button
-            className="btn dark"
+            className="btn dark desk-finish"
             disabled={busy || teams.some((x) => !x)}
             onClick={() => {
               if (g.status === "final")
@@ -392,16 +395,8 @@ export default function ScorePage() {
                 );
             }}
           >
-            {g.status === "final" ? "Reopen match" : "Finish & save report"}
+            {g.status === "final" ? "Reopen match" : "Finish match"}
           </Button>
-        </div>
-        <div className="quick-score-grid">
-          {[0, 1].map((side) => (
-            <section className="panel" key={side}>
-              <h3>{names[side]}</h3>
-              {scoreButtons(side)}
-            </section>
-          ))}
         </div>
         <Button
           className="btn secondary details-toggle"

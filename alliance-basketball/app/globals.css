@@ -54,3 +54,42 @@ main.projector-screen{background:#0c0d0f;padding:0;overflow:hidden}.broadcast-bo
 .drag-ghost{position:fixed;z-index:1000;pointer-events:none;transform:translate(-50%,-130%);display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:8px;background:#1f1f1f;color:#fff;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .swap-banner{position:sticky;top:8px;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:10px 14px;border-radius:10px;background:#1f1f1f;color:#fff}
 .fixture-card .bracket-team{border-top:1px solid #f0f0f0}
+
+/* Court-side score desk. Every button is at least 56px tall for fast, imprecise taps. */
+.desk-bar{display:flex;align-items:center;gap:12px;margin:0 0 12px}
+.desk-match{flex:1;min-width:0;height:48px;font-size:16px;font-weight:600}
+.desk-bar .live-state{white-space:nowrap;color:#555;font-weight:600}.desk-bar .live-state.live{color:#a51e2a}
+.desk-more{position:relative}.desk-more>summary{list-style:none;cursor:pointer;margin:0!important}.desk-more>summary::-webkit-details-marker{display:none}
+.desk-more-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:flex;flex-direction:column;gap:6px;min-width:240px;padding:8px;border:1px solid #ddd;border-radius:10px;background:#fff;box-shadow:0 12px 30px rgba(0,0,0,.15)}
+.desk-more-menu .btn{margin:0!important;justify-content:flex-start}
+.desk-grid{display:grid;grid-template-columns:1fr 210px 1fr;gap:18px;padding:16px 18px 18px;align-items:start}
+.desk-team{display:flex;flex-direction:column;align-items:stretch;text-align:center;min-width:0}
+.desk-team h3{margin:0;font-size:22px;font-weight:600;line-height:1.2;overflow-wrap:anywhere;min-height:27px}
+.desk-score{display:block;font-family:Bahnschrift,'Arial Narrow',Arial,sans-serif;font-weight:600;font-size:96px;line-height:1;letter-spacing:-3px;font-variant-numeric:tabular-nums;margin:4px 0 2px;animation:desk-pop .35s ease-out}
+.desk-team>small{font-size:13px;color:#b1b1b1;margin-bottom:12px}
+.desk-points{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.desk-minor{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:8px}
+.desk-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:10px;font:inherit;font-weight:700;cursor:pointer;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;transition:transform .08s ease-out,filter .08s ease-out}
+.desk-btn:active:not(:disabled){transform:scale(.95);filter:brightness(1.15)}
+.desk-btn:disabled{opacity:.35;cursor:not-allowed}
+.desk-btn.points{min-height:84px;font-size:34px;background:#a51e2a;color:#fff}
+.desk-btn.foul{min-height:56px;font-size:17px;background:#3a3a3a;color:#fff}
+.desk-btn.minus{min-height:56px;font-size:20px;background:transparent;color:#ddd;border:1px solid #555}
+.desk-clock{display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:4px}
+.desk-period{background:#a51e2a;color:#fff;padding:4px 12px;font-size:14px;font-weight:700;border-radius:5px}
+.desk-clock>strong{font-family:Bahnschrift,Arial,sans-serif;font-size:46px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.05}
+.desk-clock>small{font-size:12px;color:#aaa}
+.desk-btn.clock{width:100%;min-height:72px;margin-top:6px;font-size:22px;background:#2f7d4f;color:#fff}
+.desk-btn.clock.running{background:#e8e8e8;color:#1f1f1f}
+.desk-clock-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}
+.desk-clock-row .btn{margin:0!important;min-height:48px!important;font-size:12px!important;padding:4px!important;background:#2b2b2b!important;color:#eee!important;border:1px solid #444!important}
+.desk-footer{display:flex;align-items:center;gap:14px;margin:12px 0}
+.desk-btn.undo{min-height:60px;padding:0 26px;font-size:18px;background:#fff;color:#1f1f1f;border:2px solid #1f1f1f}
+.last-action{flex:1;margin:0;font-size:16px;color:#444}.last-action small{color:#888;margin-left:4px}
+.desk-finish{margin:0!important;min-height:60px!important;padding:0 22px!important;font-size:15px!important}
+@keyframes desk-pop{from{transform:scale(1.12);color:#ffd7db}to{transform:none}}
+.display-mode .desk-points,.display-mode .desk-minor,.display-mode .desk-btn.clock,.display-mode .desk-clock-row,.display-mode .desk-bar{display:none}
+.display-mode .desk-score{font-size:clamp(110px,17vw,240px)}.display-mode .desk-team h3{font-size:clamp(24px,3vw,46px)}.display-mode .desk-clock>strong{font-size:64px}
+.display-mode .desk-grid{min-height:70vh;align-items:center}
+@media (prefers-reduced-motion:reduce){.desk-score{animation:none}.desk-btn{transition:none}}
+@media(max-width:900px){.desk-grid{grid-template-columns:1fr 1fr}.desk-clock{grid-column:1/-1;grid-row:1}.desk-btn.points{min-height:68px;font-size:26px}.desk-score{font-size:64px}.desk-footer{flex-wrap:wrap}}

@@ -1,5 +1,18 @@
 # Alliance Basketball
 
+## Running it on one laptop (match day)
+
+1. Install Node.js 24 LTS (at least 22.13).
+2. In this folder run `npm ci` once (needs internet), then `npm run dev`.
+3. Open http://127.0.0.1:5173 in Chrome; press F11 for full screen.
+
+Everything is stored in `.sites-runtime/preview.sqlite` in this folder: no
+internet is needed once installed. Do not delete `.sites-runtime`; delete it
+only to start completely fresh. Click **Backup** after every game. Keep the
+terminal window open while scoring.
+
+Tests: `node scripts/test-engine.mjs && node scripts/test-merge.mjs && node scripts/test-bracket.mjs && node scripts/test-roster.mjs`.
+
 A four-page tournament dashboard using the supplied Alliance Basketball crest and a charcoal, silver and deep-red theme.
 
 ## Operations

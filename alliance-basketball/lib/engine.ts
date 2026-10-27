@@ -75,27 +75,13 @@ export const now = () => Date.now() + clockOffset;
 export const uid = () => crypto.randomUUID();
 export const copy = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 export function initialState(): State {
-  const names = [
-    "Fallen Angels",
-    "Royal Devils",
-    "Phoenix",
-    "Law Hustlers",
-    "BB Block 2",
-    "UnderDogs 03",
-    "Aviators",
-    "Design Thinkers",
-    "Predators",
-    "Meow",
-  ];
-  const teams = names.map((name) => ({ id: uid(), name, players: [] }));
   return {
     version: 2,
-    teams,
+    teams: [],
     tournaments: [
       newTournament(
         "Alliance intramurals",
-        "2026-10-06",
-        teams.map((t) => t.id),
+        new Date().toISOString().slice(0, 10),
       ),
     ],
     reports: [],

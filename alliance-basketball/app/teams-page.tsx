@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Plus,
   Download,
@@ -7,6 +7,7 @@ import {
   Users,
   Search,
   Check,
+  ClipboardPaste,
 } from "lucide-react";
 import {
   Button,
@@ -19,6 +20,7 @@ import {
   csv,
 } from "./dashboard";
 import * as E from "@/lib/engine";
+import { parseRoster } from "@/lib/roster";
 export default function TeamsPage() {
   const { state, t, mutate, busy, notice, ask } = useApp();
   const [selected, setSelected] = useState(""),
@@ -28,6 +30,41 @@ export default function TeamsPage() {
   const team = state.teams.find((x) => x.id === selected) ?? state.teams[0];
   const entered = team && t.teamIds.includes(team.id);
   const locked = t.games.length > 0;
+  const [quick, setQuick] = useState({ number: "", name: "" }),
+    [paste, setPaste] = useState<string | null>(null);
+  const jerseyInput = useRef<HTMLInputElement>(null);
+  // A half-typed player must never carry over to a different team.
+  useEffect(() => {
+    setQuick({ number: "", name: "" });
+    setPaste(null);
+  }, [team?.id]);
+  const pasted = team && paste !== null ? parseRoster(paste, team.players) : [];
+  const pastedOk = pasted.filter((r) => !r.error);
+  // One validation path for typed and pasted players, run inside mutate so a
+  // clash with an edit from another device is still caught.
+  const addPlayers = (list: { number: string; name: string }[]) =>
+    mutate((s) => {
+      const target = s.teams.find((x) => x.id === team!.id)!;
+      for (const { number, name } of list) {
+        if (!name.trim()) throw Error("Enter the player’s name.");
+        if (!/^\d{1,3}$/.test(number.trim()))
+          throw Error("Use a jersey number from 0 to 999.");
+        if (target.players.some((x) => x.number === number.trim()))
+          throw Error("Jersey #" + number.trim() + " is already in use.");
+        target.players.push({
+          id: E.uid(),
+          name: name.trim(),
+          number: number.trim(),
+        });
+      }
+    });
+  async function quickAdd(e: React.FormEvent) {
+    e.preventDefault();
+    if (await addPlayers([quick])) {
+      setQuick({ number: "", name: "" });
+      jerseyInput.current?.focus();
+    }
+  }
   function exportList() {
     const rows = [["Team", "Jersey", "Player", "Entered in " + t.name]];
     for (const team of state.teams) {
@@ -56,7 +93,11 @@ export default function TeamsPage() {
     <>
       <div className="page-title">
         <div>
-          <p>Club registry</p>
+          <p>
+            {state.teams.length} teams ·{" "}
+            {state.teams.reduce((n, t) => n + t.players.length, 0)} players ·{" "}
+            {t.teamIds.length} entered in {t.name}
+          </p>
           <h2>Teams & players</h2>
         </div>
         <div className="row">
@@ -72,28 +113,6 @@ export default function TeamsPage() {
             Add team
           </Button>
         </div>
-      </div>
-      <div className="club-banner">
-        <div>
-          <h3>The roster starts here.</h3>
-          <p>
-            Keep your club’s teams and players in one place. Enter teams into
-            the selected tournament when they’re ready.
-          </p>
-          <div className="banner-stats">
-            <span>
-              <b>{state.teams.length}</b> club teams
-            </span>
-            <span>
-              <b>{state.teams.reduce((n, t) => n + t.players.length, 0)}</b>{" "}
-              registered players
-            </span>
-            <span>
-              <b>{t.teamIds.length}</b> tournament entries
-            </span>
-          </div>
-        </div>
-        <img src="/alliance-logo.png" alt="" />
       </div>
       <div className="roster-layout">
         <section className="panel team-list">
@@ -211,72 +230,130 @@ export default function TeamsPage() {
                 <h3>Player roster</h3>
                 <Button
                   className="btn secondary"
-                  onClick={() =>
-                    setPlayerDraft({ id: "", name: "", number: "" })
-                  }
+                  onClick={() => setPaste(paste === null ? "" : null)}
                 >
-                  <Plus size={16} />
-                  Add player
+                  <ClipboardPaste size={16} />
+                  {paste === null ? "Paste a list" : "Close paste"}
                 </Button>
               </div>
-              {team.players.length ? (
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Jersey</th>
-                        <th>Player name</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {team.players.map((p) => (
-                        <tr key={p.id}>
-                          <td>
-                            <span className="jersey">{p.number}</span>
-                          </td>
-                          <td>{p.name}</td>
-                          <td>
-                            <div className="row">
-                              <Button
-                                className="icon-btn"
-                                aria-label={"Edit " + p.name}
-                                onClick={() => setPlayerDraft({ ...p })}
-                              >
-                                <Edit3 size={15} />
-                              </Button>
-                              <Button
-                                className="icon-btn danger"
-                                aria-label={"Delete " + p.name}
-                                onClick={() =>
-                                  ask(
-                                    "Remove " + p.name + "?",
-                                    "The player will leave the team registry. Rosters already captured in started matches and saved reports stay intact.",
-                                    () =>
-                                      mutate((s) => {
-                                        s.teams.find(
-                                          (x) => x.id === team.id,
-                                        )!.players = s.teams
-                                          .find((x) => x.id === team.id)!
-                                          .players.filter((x) => x.id !== p.id);
-                                      }),
-                                  )
-                                }
-                              >
-                                <Trash2 size={15} />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              {paste === null ? (
+                <form className="quick-add" onSubmit={quickAdd}>
+                  <Input
+                    ref={jerseyInput}
+                    aria-label="Jersey number"
+                    placeholder="#"
+                    inputMode="numeric"
+                    maxLength={3}
+                    value={quick.number}
+                    onChange={(e) =>
+                      setQuick({
+                        ...quick,
+                        number: e.target.value.replace(/\D/g, ""),
+                      })
+                    }
+                  />
+                  <Input
+                    aria-label="Player name"
+                    placeholder="Player name, then press Enter"
+                    maxLength={80}
+                    value={quick.name}
+                    onChange={(e) =>
+                      setQuick({ ...quick, name: e.target.value })
+                    }
+                  />
+                  <Button
+                    className="btn action"
+                    disabled={busy || !quick.number || !quick.name.trim()}
+                  >
+                    <Plus size={16} />
+                    Add
+                  </Button>
+                </form>
               ) : (
-                <Empty title="Add your starting lineup">
-                  Enter each player’s name and jersey number. The score desk
-                  uses this roster for points and fouls.
-                </Empty>
+                <div className="paste-box">
+                  <textarea
+                    autoFocus
+                    rows={6}
+                    aria-label="Paste players"
+                    placeholder={
+                      "One player per line, e.g.\n7 Rahul Sharma\nArjun - 11\n#23 Kabir"
+                    }
+                    value={paste}
+                    onChange={(e) => setPaste(e.target.value)}
+                  />
+                  {pasted.length > 0 && (
+                    <ul className="paste-preview">
+                      {pasted.map((r, i) => (
+                        <li key={i} className={r.error ? "bad" : ""}>
+                          <span className="jersey">{r.number || "?"}</span>
+                          <span>{r.name || r.line}</span>
+                          {r.error && <small>{r.error}, skipped</small>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="row">
+                    <Button
+                      className="btn action"
+                      disabled={busy || !pastedOk.length}
+                      onClick={async () => {
+                        if (await addPlayers(pastedOk)) {
+                          notice(
+                            "Added " +
+                              pastedOk.length +
+                              " players to " +
+                              team.name +
+                              ".",
+                          );
+                          setPaste(null);
+                        }
+                      }}
+                    >
+                      Add {pastedOk.length} player
+                      {pastedOk.length === 1 ? "" : "s"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {team.players.length > 0 && (
+                <div className="player-grid">
+                  {[...team.players]
+                    .sort((a, b) => Number(a.number) - Number(b.number))
+                    .map((p) => (
+                      <div className="player-chip" key={p.id}>
+                        <span className="jersey">{p.number}</span>
+                        <span className="player-chip-name">{p.name}</span>
+                        <Button
+                          className="icon-btn"
+                          aria-label={"Edit " + p.name}
+                          onClick={() => setPlayerDraft({ ...p })}
+                        >
+                          <Edit3 size={15} />
+                        </Button>
+                        <Button
+                          className="icon-btn danger"
+                          aria-label={"Delete " + p.name}
+                          onClick={() =>
+                            ask(
+                              "Remove " + p.name + "?",
+                              "The player will leave the team registry. Rosters already captured in started matches and saved reports stay intact.",
+                              () =>
+                                mutate((s) => {
+                                  const target = s.teams.find(
+                                    (x) => x.id === team.id,
+                                  )!;
+                                  target.players = target.players.filter(
+                                    (x) => x.id !== p.id,
+                                  );
+                                }),
+                            )
+                          }
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
+                    ))}
+                </div>
               )}
               <p className="help">
                 Started matches keep a roster snapshot, so later registry edits
@@ -313,6 +390,10 @@ export default function TeamsPage() {
                   else {
                     const id = E.uid();
                     s.teams.push({ ...teamDraft, id, name });
+                    // New teams join the current tournament until a draw exists,
+                    // which saves a separate "Enter team" tap for every team.
+                    const target = s.tournaments.find((x) => x.id === t.id);
+                    if (target && !target.games.length) target.teamIds.push(id);
                     setSelected(id);
                   }
                 })

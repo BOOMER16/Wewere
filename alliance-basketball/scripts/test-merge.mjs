@@ -9,7 +9,18 @@ await build({
 });
 const { mergeWorkspace } = await import("../.sites-runtime/merge-test.mjs");
 const E = await import("../.sites-runtime/engine-test.mjs");
-const base = E.initialState();
+// Ten entered teams, independent of what the app's empty starting state contains.
+const seeded = () => {
+  const s = E.initialState();
+  s.teams = Array.from({ length: 10 }, (_, i) => ({
+    id: "team" + i,
+    name: "Team " + i,
+    players: [],
+  }));
+  s.tournaments[0].teamIds = s.teams.map((x) => x.id);
+  return s;
+};
+const base = seeded();
 base.teams.forEach(
   (t, i) => (t.players = [{ id: "p" + i, name: "P" + i, number: "1" }]),
 );

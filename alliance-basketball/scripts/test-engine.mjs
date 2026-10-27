@@ -63,8 +63,19 @@ for (let n = 2; n <= 64; n++) {
     }
   }
 }
+// Ten entered teams, independent of what the app's empty starting state contains.
+const seeded = () => {
+  const s = E.initialState();
+  s.teams = Array.from({ length: 10 }, (_, i) => ({
+    id: "team" + i,
+    name: "Team " + i,
+    players: [],
+  }));
+  s.tournaments[0].teamIds = s.teams.map((x) => x.id);
+  return s;
+};
 // Specific score/foul integrity, tie rejection, snapshots and invalidation.
-const s = E.initialState();
+const s = seeded();
 s.teams.forEach(
   (t, i) => (t.players = [{ id: "p" + i, name: "P" + i, number: "1" }]),
 );
@@ -90,7 +101,7 @@ console.log(
 );
 
 // Team-first scoring, late attribution, immutable totals and safe team removal.
-const late = E.initialState(),
+const late = seeded(),
   lt = late.tournaments[0];
 E.generate(lt);
 const lg = lt.games[0];
@@ -119,7 +130,7 @@ assert.equal(E.playerTotal(lg, 0, "late-player"), 0);
 assert.throws(() => E.assignEvent(late, lt, lg, lg.events[0].id, "invalid"));
 assert.throws(() => E.removeTeam(late, rt.id));
 E.assertState(late);
-const removable = E.initialState();
+const removable = seeded();
 E.generate(removable.tournaments[0]);
 const removed = removable.teams[0].id;
 E.removeTeam(removable, removed);

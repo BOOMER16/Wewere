@@ -93,3 +93,18 @@ main.projector-screen{background:#0c0d0f;padding:0;overflow:hidden}.broadcast-bo
 .display-mode .desk-grid{min-height:70vh;align-items:center}
 @media (prefers-reduced-motion:reduce){.desk-score{animation:none}.desk-btn{transition:none}}
 @media(max-width:900px){.desk-grid{grid-template-columns:1fr 1fr}.desk-clock{grid-column:1/-1;grid-row:1}.desk-btn.points{min-height:68px;font-size:26px}.desk-score{font-size:64px}.desk-footer{flex-wrap:wrap}}
+
+/* Player registration: keyboard-first quick add, paste preview, player chips. */
+.quick-add{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:8px;margin:4px 0 14px}
+.quick-add input{height:48px;font-size:16px}.quick-add .btn{margin:0!important;min-height:48px!important}
+.paste-box{display:flex;flex-direction:column;gap:10px;margin:4px 0 14px}
+.paste-box textarea{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font:inherit;font-size:15px;resize:vertical}
+.paste-preview{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;max-height:240px;overflow:auto}
+.paste-preview li{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #e6e6e6;border-radius:8px;font-size:14px}
+.paste-preview li.bad{border-color:#e9b7bc;background:#fdf3f4;color:#888}.paste-preview li small{margin-left:auto;color:#a51e2a;white-space:nowrap}
+.paste-box .row .btn{margin:0!important}
+.player-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-bottom:12px}
+.player-chip{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 8px;border:1px solid #e6e6e6;border-radius:10px;background:#fff}
+.player-chip .jersey{min-width:22px;text-align:center}
+.player-chip-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:500}
+.player-chip .icon-btn{margin:0!important}
